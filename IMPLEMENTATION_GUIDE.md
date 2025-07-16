@@ -21,1123 +21,280 @@ This guide provides step-by-step instructions to build a complete vulnerability 
 ## 📋 Prerequisites
 
 Before starting, ensure you have:
-- [ ] Node.js 18+ installed
-- [ ] Git configured
-- [ ] Neo4j AuraDB account (free tier available)
-- [ ] Vercel account
-- [ ] LiteLLM API credentials (provided)
+- [x] Node.js 18+ installed
+- [x] Git configured
+- [x] Neo4j AuraDB account (free tier available)
+- [x] Vercel account
+- [x] LiteLLM API credentials (provided)
 
 ---
 
-## 🚀 Phase 1: Project Setup & Foundation
+## ✅ Phase 1: Project Setup & Foundation (DONE)
 
 ### Step 1.1: Initialize Next.js Project
-```bash
-# Create new Next.js project
-npx create-next-app@latest vulngraph --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
-cd vulngraph
-
-# Install additional dependencies
-npm install @neo4j/neo4j-driver d3 react-force-graph lucide-react
-npm install -D @types/d3
-```
+Create a new Next.js project with TypeScript, Tailwind CSS, and ESLint. Install additional dependencies for Neo4j, graph visualization, and UI components.
 
 **Test**: Run `npm run dev` and verify the app starts at `http://localhost:3000`
 
 ### Step 1.2: Environment Configuration
-Create `.env.local`:
-```env
-# LiteLLM Configuration
-LITELLM_API_KEY=sk-8NY0UzYOXsTyJNEvwLcL9g
-LITELLM_BASE_URL=https://api.litellm.ai
-
-# Neo4j Configuration
-NEO4J_URI=your_neo4j_uri_here
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=your_password_here
-
-# Next.js Configuration
-NEXTAUTH_SECRET=your_secret_here
-NEXTAUTH_URL=http://localhost:3000
-```
+Create `.env.local` with LiteLLM credentials and Neo4j connection details.
 
 **Test**: Verify environment variables are loaded by checking `process.env.LITELLM_API_KEY`
 
 ### Step 1.3: Project Structure Setup
-```
-src/
-├── app/
-│   ├── api/
-│   │   ├── chat/
-│   │   ├── graph/
-│   │   └── ingest/
-│   ├── components/
-│   │   ├── ui/
-│   │   ├── chat/
-│   │   └── graph/
-│   ├── lib/
-│   │   ├── neo4j.ts
-│   │   ├── litellm.ts
-│   │   └── types.ts
-│   └── data/
-│       └── findings.json
-```
+Create the directory structure for API routes, components, libraries, and data.
 
 **Test**: Verify all directories exist and are accessible
 
 ---
 
-## 🗄️ Phase 2: Database & Data Layer
+## ✅ Phase 2: Database Setup & Schema Design (DONE)
 
-### Step 2.1: Neo4j Database Setup
+### Step 2.1: Neo4j AuraDB Setup
 1. Create Neo4j AuraDB instance
 2. Get connection details (URI, username, password)
 3. Update `.env.local` with Neo4j credentials
 
-**Test**: Create `src/lib/neo4j.ts` and test connection:
-```typescript
-import neo4j from 'neo4j-driver';
+**Test**: Create a connection test function and verify database connectivity
 
-const driver = neo4j.driver(
-  process.env.NEO4J_URI!,
-  neo4j.auth.basic(process.env.NEO4J_USERNAME!, process.env.NEO4J_PASSWORD!)
-);
+### Step 2.2: Graph Schema Design
+Design a comprehensive schema that captures:
+- **Core Nodes**: Finding, Asset, Service, Scanner, CWE, OWASP, Package
+- **Base Relationships**: AFFECTS, DETECTED, DESCRIBES_CWE, BELONGS_TO_SERVICE
+- **Enriched Relationships**: SAME_ROOT_CAUSE, SIMILAR_TO, EXPLOIT_CHAIN, PATCHES
 
-export async function testConnection() {
-  const session = driver.session();
-  try {
-    const result = await session.run('RETURN 1 as test');
-    console.log('Neo4j connection successful:', result.records[0].get('test'));
-    return true;
-  } catch (error) {
-    console.error('Neo4j connection failed:', error);
-    return false;
-  } finally {
-    await session.close();
-  }
-}
-```
+**Test**: Create constraints and verify schema creation
 
-### Step 2.2: Data Models & Types
-Create `src/lib/types.ts`:
-```typescript
-export interface Vulnerability {
-  finding_id: string;
-  scanner: string;
-  scan_id: string;
-  timestamp: string;
-  vulnerability: {
-    owasp_id: string;
-    cwe_id: string;
-    title: string;
-    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-    description: string;
-    vector: string;
-    cve_id?: string;
-  };
-  asset: {
-    type: string;
-    url?: string;
-    path?: string;
-    service?: string;
-    cluster?: string;
-    image?: string;
-    registry?: string;
-    repo?: string;
-  };
-  package?: {
-    ecosystem: string;
-    name: string;
-    version: string;
-  };
-}
-
-export interface GraphNode {
-  id: string;
-  label: string;
-  type: 'Vulnerability' | 'Asset' | 'Service' | 'Package' | 'Scanner';
-  properties: Record<string, any>;
-}
-
-export interface GraphEdge {
-  source: string;
-  target: string;
-  type: string;
-  properties: Record<string, any>;
-}
-```
+### Step 2.3: Data Models & Types
+Define TypeScript interfaces for all graph entities and relationships.
 
 **Test**: Import types and verify TypeScript compilation
 
-### Step 2.3: Database Schema Creation
-Create `src/lib/schema.ts`:
-```typescript
-import { driver } from './neo4j';
+---
 
-export async function createConstraints() {
-  const session = driver.session();
-  try {
-    // Create constraints for unique properties
-    await session.run('CREATE CONSTRAINT vulnerability_id IF NOT EXISTS FOR (v:Vulnerability) REQUIRE v.finding_id IS UNIQUE');
-    await session.run('CREATE CONSTRAINT asset_id IF NOT EXISTS FOR (a:Asset) REQUIRE a.id IS UNIQUE');
-    await session.run('CREATE CONSTRAINT service_id IF NOT EXISTS FOR (s:Service) REQUIRE s.name IS UNIQUE');
-    await session.run('CREATE CONSTRAINT package_id IF NOT EXISTS FOR (p:Package) REQUIRE p.name_version IS UNIQUE');
-    
-    console.log('Database constraints created successfully');
-  } catch (error) {
-    console.error('Error creating constraints:', error);
-  } finally {
-    await session.close();
-  }
-}
-```
+## ✅ Phase 3: Data Ingestion & Graph Construction (DONE)
 
-**Test**: Run schema creation and verify constraints exist in Neo4j browser
+### Step 3.1: Raw Data Loading
+Load the findings data and research data into normalized nodes. Create canonical reference nodes for CWE, OWASP, Services, etc.
+
+**Test**: Verify all 12 findings are loaded as nodes with proper properties
+
+### Step 3.2: Base Relationship Creation
+Create the fundamental relationships between findings and their associated entities (services, scanners, CWE, etc.).
+
+**Test**: Query the graph and verify base relationships exist
+
+### Step 3.3: AI-Enhanced Relationship Generation
+Use the research data to create intelligent relationships:
+
+1. **Root Cause Analysis**: Use detailed descriptions to identify common root causes
+2. **Exploit Chain Mapping**: Connect vulnerabilities that can be chained together
+3. **Similarity Scoring**: Create similarity relationships based on multiple factors
+4. **Impact Correlation**: Link vulnerabilities that affect the same business functions
+
+**Test**: Verify enriched relationships are created and can be queried
+
+### Step 3.4: Graph Validation
+Run comprehensive queries to validate graph integrity and relationship quality.
+
+**Test**: Execute sample queries and verify results match expectations
 
 ---
 
-## 📊 Phase 3: Data Ingestion & Knowledge Graph
+## 🚦 Phase 4: User Prompt to Output Pipeline
 
-### Step 3.1: Findings Data Setup
-Create `src/data/findings.json` with the provided vulnerability data.
+### Step 4.1: Query Understanding & Cypher Generation
+Implement a sequential pipeline for natural language processing:
+1. **Intent Classification**: Determine what type of query the user is asking
+2. **Entity Extraction**: Identify relevant entities (services, vulnerabilities, timeframes)
+3. **Query Decomposition**: Break complex queries into simpler sub-queries
+4. **Cypher Query Generation**: Use LLM to generate Cypher queries from natural language
+5. **Safety Validation**: Ensure generated queries are read-only and safe
+6. **Query Execution**: Use Neo4j driver to run queries
+7. **Result Formatting**: Structure results for LLM consumption
+8. **Response Generation**: Use LLM to generate human-readable responses
 
-**Test**: Verify JSON is valid and contains all 12 findings
-
-### Step 3.2: Data Ingestion API
-Create `src/app/api/ingest/route.ts`:
-```typescript
-import { NextRequest, NextResponse } from 'next/server';
-import { driver } from '@/lib/neo4j';
-import { Vulnerability } from '@/lib/types';
-import findings from '@/data/findings.json';
-
-export async function POST(request: NextRequest) {
-  try {
-    const session = driver.session();
-    
-    // Clear existing data
-    await session.run('MATCH (n) DETACH DELETE n');
-    
-    // Create nodes and relationships
-    for (const finding of findings as Vulnerability[]) {
-      // Create vulnerability node
-      await session.run(`
-        CREATE (v:Vulnerability {
-          finding_id: $finding_id,
-          title: $title,
-          severity: $severity,
-          description: $description,
-          owasp_id: $owasp_id,
-          cwe_id: $cwe_id,
-          vector: $vector,
-          timestamp: $timestamp
-        })
-      `, {
-        finding_id: finding.finding_id,
-        title: finding.vulnerability.title,
-        severity: finding.vulnerability.severity,
-        description: finding.vulnerability.description,
-        owasp_id: finding.vulnerability.owasp_id,
-        cwe_id: finding.vulnerability.cwe_id,
-        vector: finding.vulnerability.vector,
-        timestamp: finding.timestamp
-      });
-      
-      // Create asset node
-      if (finding.asset.service) {
-        await session.run(`
-          MERGE (s:Service {name: $service})
-          WITH s
-          MATCH (v:Vulnerability {finding_id: $finding_id})
-          CREATE (v)-[:AFFECTS]->(s)
-        `, {
-          service: finding.asset.service,
-          finding_id: finding.finding_id
-        });
-      }
-      
-      // Create scanner relationship
-      await session.run(`
-        MERGE (sc:Scanner {name: $scanner})
-        WITH sc
-        MATCH (v:Vulnerability {finding_id: $finding_id})
-        CREATE (sc)-[:DETECTED]->(v)
-      `, {
-        scanner: finding.scanner,
-        finding_id: finding.finding_id
-      });
-    }
-    
-    await session.close();
-    
-    return NextResponse.json({ 
-      success: true, 
-      message: `Ingested ${findings.length} findings` 
-    });
-    
-  } catch (error) {
-    console.error('Ingestion error:', error);
-    return NextResponse.json({ error: 'Ingestion failed' }, { status: 500 });
-  }
-}
-```
-
-**Test**: 
-1. Call `POST /api/ingest` 
-2. Verify response shows successful ingestion
-3. Check Neo4j browser for nodes and relationships
-
-### Step 3.3: Graph Query API
-Create `src/app/api/graph/route.ts`:
-```typescript
-import { NextRequest, NextResponse } from 'next/server';
-import { driver } from '@/lib/neo4j';
-
-export async function GET(request: NextRequest) {
-  try {
-    const session = driver.session();
-    
-    // Get all nodes and relationships
-    const result = await session.run(`
-      MATCH (n)
-      OPTIONAL MATCH (n)-[r]->(m)
-      RETURN n, r, m
-      LIMIT 100
-    `);
-    
-    const nodes = new Map();
-    const edges = [];
-    
-    result.records.forEach(record => {
-      const node1 = record.get('n');
-      const node2 = record.get('m');
-      const relationship = record.get('r');
-      
-      if (node1) {
-        nodes.set(node1.identity.toString(), {
-          id: node1.identity.toString(),
-          label: node1.labels[0],
-          properties: node1.properties
-        });
-      }
-      
-      if (node2) {
-        nodes.set(node2.identity.toString(), {
-          id: node2.identity.toString(),
-          label: node2.labels[0],
-          properties: node2.properties
-        });
-      }
-      
-      if (relationship) {
-        edges.push({
-          source: relationship.start.toString(),
-          target: relationship.end.toString(),
-          type: relationship.type,
-          properties: relationship.properties
-        });
-      }
-    });
-    
-    await session.close();
-    
-    return NextResponse.json({
-      nodes: Array.from(nodes.values()),
-      edges
-    });
-    
-  } catch (error) {
-    console.error('Graph query error:', error);
-    return NextResponse.json({ error: 'Graph query failed' }, { status: 500 });
-  }
-}
-```
-
-**Test**: Call `GET /api/graph` and verify JSON response with nodes and edges
+**Test**: For each user prompt, verify the pipeline produces a correct, safe, and helpful output.
 
 ---
 
-## 🤖 Phase 4: AI Agent System
+## 🎨 Phase 5: Frontend Implementation
 
-### Step 4.1: LiteLLM Integration
-Create `src/lib/litellm.ts`:
-```typescript
-export class LiteLLMClient {
-  private baseUrl: string;
-  private apiKey: string;
+### Step 5.1: Basic Chat Interface
+Create a simple but effective chat interface:
 
-  constructor() {
-    this.baseUrl = process.env.LITELLM_BASE_URL!;
-    this.apiKey = process.env.LITELLM_API_KEY!;
-  }
+1. **Input Component**: Text area for user queries
+2. **Message Display**: Show user queries and AI responses
+3. **Loading States**: Indicate when agents are working
+4. **Error Handling**: Display errors gracefully
 
-  async chatCompletion(messages: any[], model: string = 'gpt-4') {
-    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 1000
-      })
-    });
+**Test**: Verify chat interface works end-to-end
 
-    if (!response.ok) {
-      throw new Error(`LiteLLM API error: ${response.statusText}`);
-    }
+### Step 5.2: Agent Activity Indicators
+Show multiple agents working:
 
-    return response.json();
-  }
-}
+1. **Agent Status**: Display which agents are active
+2. **Progress Indicators**: Show processing steps
+3. **Agent Icons**: Visual representation of different agents
+4. **Timing Information**: Show how long each step takes
 
-export const litellm = new LiteLLMClient();
-```
+**Test**: Verify agent activity is properly displayed
 
-**Test**: Create simple test to verify LiteLLM connection:
-```typescript
-// Test in API route
-const response = await litellm.chatCompletion([
-  { role: 'user', content: 'Hello, test message' }
-]);
-console.log('LiteLLM test response:', response);
-```
+### Step 5.3: Response Enhancement
+Improve the user experience:
 
-### Step 4.2: Graph Analysis Agent
-Create `src/lib/agents/graphAgent.ts`:
-```typescript
-import { litellm } from '../litellm';
-import { driver } from '../neo4j';
+1. **Markdown Rendering**: Format responses with proper styling
+2. **Code Highlighting**: Highlight Cypher queries and technical terms
+3. **Collapsible Sections**: Allow users to expand/collapse details
+4. **Copy Functionality**: Allow copying of queries and responses
 
-export class GraphAnalysisAgent {
-  async analyzeVulnerabilities(query: string) {
-    const session = driver.session();
-    
-    try {
-      // Get relevant graph data
-      const result = await session.run(`
-        MATCH (v:Vulnerability)
-        OPTIONAL MATCH (v)-[:AFFECTS]->(s:Service)
-        OPTIONAL MATCH (sc:Scanner)-[:DETECTED]->(v)
-        RETURN v, s, sc
-        LIMIT 20
-      `);
-      
-      const context = result.records.map(record => ({
-        vulnerability: record.get('v').properties,
-        service: record.get('s')?.properties,
-        scanner: record.get('sc')?.properties
-      }));
-      
-      const messages = [
-        {
-          role: 'system',
-          content: `You are a security analyst agent. Analyze the following vulnerability data and answer the user's question. Provide detailed insights and recommendations.`
-        },
-        {
-          role: 'user',
-          content: `Context: ${JSON.stringify(context)}\n\nQuestion: ${query}`
-        }
-      ];
-      
-      const response = await litellm.chatCompletion(messages);
-      return response.choices[0].message.content;
-      
-    } finally {
-      await session.close();
-    }
-  }
-}
-```
-
-**Test**: Create test API route to verify agent functionality
-
-### Step 4.3: Chat API with Agent Integration
-Create `src/app/api/chat/route.ts`:
-```typescript
-import { NextRequest, NextResponse } from 'next/server';
-import { GraphAnalysisAgent } from '@/lib/agents/graphAgent';
-
-const agent = new GraphAnalysisAgent();
-
-export async function POST(request: NextRequest) {
-  try {
-    const { message } = await request.json();
-    
-    if (!message) {
-      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
-    }
-    
-    const response = await agent.analyzeVulnerabilities(message);
-    
-    return NextResponse.json({
-      response,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('Chat error:', error);
-    return NextResponse.json({ error: 'Chat failed' }, { status: 500 });
-  }
-}
-```
-
-**Test**: Send POST request to `/api/chat` with message and verify AI response
-
----
-
-## 🎨 Phase 5: Frontend UI
-
-### Step 5.1: Basic Layout & Components
-Create `src/app/layout.tsx`:
-```typescript
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
-import './globals.css';
-
-const inter = Inter({ subsets: ['latin'] });
-
-export const metadata: Metadata = {
-  title: 'VulnGraph - Vulnerability Analysis',
-  description: 'AI-powered vulnerability knowledge graph and analysis system',
-};
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="en">
-      <body className={inter.className}>
-        <div className="min-h-screen bg-gray-50">
-          {children}
-        </div>
-      </body>
-    </html>
-  );
-}
-```
-
-**Test**: Verify layout renders correctly
-
-### Step 5.2: Main Dashboard Page
-Create `src/app/page.tsx`:
-```typescript
-'use client';
-
-import { useState } from 'react';
-import ChatInterface from '@/components/chat/ChatInterface';
-import GraphVisualization from '@/components/graph/GraphVisualization';
-import DataIngestion from '@/components/DataIngestion';
-
-export default function Home() {
-  const [activeTab, setActiveTab] = useState<'chat' | 'graph' | 'ingest'>('chat');
-
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <header className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">
-          VulnGraph
-        </h1>
-        <p className="text-gray-600">
-          AI-powered vulnerability knowledge graph and analysis system
-        </p>
-      </header>
-
-      <nav className="mb-6">
-        <div className="flex space-x-4 border-b border-gray-200">
-          {[
-            { id: 'chat', label: 'Chat Analysis' },
-            { id: 'graph', label: 'Graph Visualization' },
-            { id: 'ingest', label: 'Data Ingestion' }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2 font-medium rounded-t-lg ${
-                activeTab === tab.id
-                  ? 'bg-blue-500 text-white'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </nav>
-
-      <main>
-        {activeTab === 'chat' && <ChatInterface />}
-        {activeTab === 'graph' && <GraphVisualization />}
-        {activeTab === 'ingest' && <DataIngestion />}
-      </main>
-    </div>
-  );
-}
-```
-
-**Test**: Verify page loads with tabs and navigation works
-
-### Step 5.3: Chat Interface Component
-Create `src/components/chat/ChatInterface.tsx`:
-```typescript
-'use client';
-
-import { useState } from 'react';
-import { Send, Bot, User } from 'lucide-react';
-
-interface Message {
-  id: string;
-  content: string;
-  role: 'user' | 'assistant';
-  timestamp: string;
-}
-
-export default function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  const sendMessage = async () => {
-    if (!input.trim()) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      content: input,
-      role: 'user',
-      timestamp: new Date().toISOString()
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: input })
-      });
-
-      const data = await response.json();
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: data.response,
-        role: 'assistant',
-        timestamp: data.timestamp
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Chat error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <div className="bg-white rounded-lg shadow-lg h-96 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold">Vulnerability Analysis Chat</h2>
-          <p className="text-sm text-gray-600">Ask questions about your security findings</p>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                  message.role === 'user'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 text-gray-900'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  {message.role === 'user' ? (
-                    <User className="w-4 h-4" />
-                  ) : (
-                    <Bot className="w-4 h-4" />
-                  )}
-                  <span className="text-xs opacity-75">
-                    {message.role === 'user' ? 'You' : 'AI Agent'}
-                  </span>
-                </div>
-                <p className="text-sm">{message.content}</p>
-              </div>
-            </div>
-          ))}
-          
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-100 text-gray-900 max-w-xs lg:max-w-md px-4 py-2 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-4 h-4" />
-                  <span className="text-xs opacity-75">AI Agent</span>
-                </div>
-                <div className="flex space-x-1 mt-2">
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Ask about vulnerabilities, services, or security patterns..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={isLoading}
-            />
-            <button
-              onClick={sendMessage}
-              disabled={isLoading || !input.trim()}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-```
-
-**Test**: Verify chat interface renders and can send/receive messages
-
-### Step 5.4: Graph Visualization Component
-Create `src/components/graph/GraphVisualization.tsx`:
-```typescript
-'use client';
-
-import { useEffect, useState } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
-
-interface GraphData {
-  nodes: any[];
-  edges: any[];
-}
-
-export default function GraphVisualization() {
-  const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchGraphData();
-  }, []);
-
-  const fetchGraphData = async () => {
-    try {
-      const response = await fetch('/api/graph');
-      const data = await response.json();
-      setGraphData(data);
-    } catch (error) {
-      console.error('Failed to fetch graph data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="text-lg">Loading graph data...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-6xl mx-auto">
-      <div className="bg-white rounded-lg shadow-lg p-4">
-        <h2 className="text-lg font-semibold mb-4">Vulnerability Knowledge Graph</h2>
-        <div className="h-96 border border-gray-200 rounded-lg">
-          <ForceGraph2D
-            graphData={graphData}
-            nodeLabel="properties"
-            nodeColor={(node: any) => {
-              switch (node.label) {
-                case 'Vulnerability': return '#ef4444';
-                case 'Service': return '#3b82f6';
-                case 'Scanner': return '#10b981';
-                default: return '#6b7280';
-              }
-            }}
-            nodeRelSize={6}
-            linkWidth={2}
-            linkColor={() => '#9ca3af'}
-          />
-        </div>
-        <div className="mt-4 flex gap-4 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            <span>Vulnerabilities</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-            <span>Services</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            <span>Scanners</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-```
-
-**Test**: Verify graph visualization loads and displays nodes/edges
-
-### Step 5.5: Data Ingestion Component
-Create `src/components/DataIngestion.tsx`:
-```typescript
-'use client';
-
-import { useState } from 'react';
-import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
-
-export default function DataIngestion() {
-  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [message, setMessage] = useState('');
-
-  const ingestData = async () => {
-    setStatus('loading');
-    setMessage('Ingesting vulnerability data...');
-
-    try {
-      const response = await fetch('/api/ingest', {
-        method: 'POST'
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setStatus('success');
-        setMessage(data.message);
-      } else {
-        throw new Error(data.error || 'Ingestion failed');
-      }
-    } catch (error) {
-      setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'Unknown error occurred');
-    }
-  };
-
-  return (
-    <div className="max-w-2xl mx-auto">
-      <div className="bg-white rounded-lg shadow-lg p-6">
-        <h2 className="text-lg font-semibold mb-4">Data Ingestion</h2>
-        
-        <div className="mb-6">
-          <p className="text-gray-600 mb-4">
-            Click the button below to ingest the vulnerability findings into the knowledge graph.
-            This will create nodes for vulnerabilities, services, and scanners, along with their relationships.
-          </p>
-          
-          <button
-            onClick={ingestData}
-            disabled={status === 'loading'}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Upload className="w-4 h-4" />
-            {status === 'loading' ? 'Ingesting...' : 'Ingest Data'}
-          </button>
-        </div>
-
-        {status !== 'idle' && (
-          <div className={`p-4 rounded-lg ${
-            status === 'success' ? 'bg-green-50 border border-green-200' :
-            status === 'error' ? 'bg-red-50 border border-red-200' :
-            'bg-blue-50 border border-blue-200'
-          }`}>
-            <div className="flex items-center gap-2">
-              {status === 'success' && <CheckCircle className="w-5 h-5 text-green-500" />}
-              {status === 'error' && <AlertCircle className="w-5 h-5 text-red-500" />}
-              {status === 'loading' && <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>}
-              <span className={`
-                ${status === 'success' ? 'text-green-700' : ''}
-                ${status === 'error' ? 'text-red-700' : ''}
-                ${status === 'loading' ? 'text-blue-700' : ''}
-              `}>
-                {message}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-```
-
-**Test**: Verify data ingestion component works and shows proper status messages
+**Test**: Verify response formatting and functionality
 
 ---
 
 ## 🚀 Phase 6: Advanced Features
 
-### Step 6.1: Enhanced AI Agent with Reasoning
-Update `src/lib/agents/graphAgent.ts` with reasoning capabilities:
-```typescript
-export class GraphAnalysisAgent {
-  async analyzeWithReasoning(query: string) {
-    const session = driver.session();
-    
-    try {
-      // Get comprehensive graph data
-      const result = await session.run(`
-        MATCH (v:Vulnerability)
-        OPTIONAL MATCH (v)-[:AFFECTS]->(s:Service)
-        OPTIONAL MATCH (sc:Scanner)-[:DETECTED]->(v)
-        OPTIONAL MATCH (v)-[:SIMILAR_TO]->(v2:Vulnerability)
-        RETURN v, s, sc, v2
-        ORDER BY v.properties.severity DESC
-        LIMIT 30
-      `);
-      
-      const context = this.processGraphData(result.records);
-      
-      const messages = [
-        {
-          role: 'system',
-          content: `You are an expert security analyst AI agent. Analyze vulnerability data and provide:
-1. Detailed analysis of the findings
-2. Risk assessment and prioritization
-3. Remediation recommendations
-4. Patterns and correlations you identify
-5. Security insights and trends
+### Step 6.1: Query Suggestions
+Provide intelligent query suggestions:
 
-Always explain your reasoning process step by step.`
-        },
-        {
-          role: 'user',
-          content: `Analyze this vulnerability data: ${JSON.stringify(context, null, 2)}
+1. **Popular Queries**: Suggest common vulnerability analysis questions
+2. **Context-Aware Suggestions**: Suggest related queries based on current results
+3. **Query Templates**: Provide templates for complex analyses
+4. **Learning System**: Remember and suggest previously successful queries
 
-User Question: ${query}
+**Test**: Verify query suggestions are relevant and helpful
 
-Provide a comprehensive analysis with reasoning steps.`
-        }
-      ];
-      
-      const response = await litellm.chatCompletion(messages, 'gpt-4');
-      return response.choices[0].message.content;
-      
-    } finally {
-      await session.close();
-    }
-  }
+### Step 6.2: Graph Visualization
+Add interactive graph visualization:
 
-  private processGraphData(records: any[]) {
-    // Process and structure the graph data for better AI analysis
-    const vulnerabilities = new Map();
-    const services = new Map();
-    const scanners = new Map();
+1. **Force-Directed Layout**: Display graph nodes and relationships
+2. **Interactive Exploration**: Allow users to click and explore
+3. **Filtering Options**: Filter by severity, service, vulnerability type
+4. **Path Highlighting**: Highlight paths between related vulnerabilities
 
-    records.forEach(record => {
-      const vuln = record.get('v').properties;
-      const service = record.get('s')?.properties;
-      const scanner = record.get('sc')?.properties;
+**Test**: Verify graph visualization loads and is interactive
 
-      if (!vulnerabilities.has(vuln.finding_id)) {
-        vulnerabilities.set(vuln.finding_id, {
-          ...vuln,
-          services: [],
-          scanners: []
-        });
-      }
+### Step 6.3: Export Capabilities
+Allow users to export results:
 
-      if (service && !services.has(service.name)) {
-        services.set(service.name, service);
-      }
+1. **CSV Export**: Export query results as CSV
+2. **PDF Reports**: Generate detailed PDF reports
+3. **Graph Export**: Export graph data for external analysis
+4. **Query History**: Save and export query history
 
-      if (scanner && !scanners.has(scanner.name)) {
-        scanners.set(scanner.name, scanner);
-      }
-    });
-
-    return {
-      vulnerabilities: Array.from(vulnerabilities.values()),
-      services: Array.from(services.values()),
-      scanners: Array.from(scanners.values()),
-      summary: {
-        totalVulnerabilities: vulnerabilities.size,
-        totalServices: services.size,
-        totalScanners: scanners.size,
-        severityBreakdown: this.getSeverityBreakdown(Array.from(vulnerabilities.values()))
-      }
-    };
-  }
-
-  private getSeverityBreakdown(vulnerabilities: any[]) {
-    return vulnerabilities.reduce((acc, vuln) => {
-      acc[vuln.severity] = (acc[vuln.severity] || 0) + 1;
-      return acc;
-    }, {});
-  }
-}
-```
-
-**Test**: Verify enhanced agent provides detailed reasoning in responses
-
-### Step 6.2: Real-time Chat with Streaming
-Update chat API to support streaming responses:
-```typescript
-// In src/app/api/chat/route.ts
-export async function POST(request: NextRequest) {
-  const { message } = await request.json();
-  
-  // Set up streaming response
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        const response = await agent.analyzeWithReasoning(message);
-        
-        // Stream the response in chunks
-        const chunks = response.split(' ');
-        for (const chunk of chunks) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: chunk + ' ' })}\n\n`));
-          await new Promise(resolve => setTimeout(resolve, 50)); // Simulate typing
-        }
-        
-        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    }
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    },
-  });
-}
-```
-
-**Test**: Verify streaming responses work in chat interface
+**Test**: Verify export functionality works correctly
 
 ---
 
-## 🌐 Phase 7: Deployment
+## 🌐 Phase 7: Deployment & Optimization
 
 ### Step 7.1: Vercel Configuration
-Create `vercel.json`:
-```json
-{
-  "buildCommand": "npm run build",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
-  "env": {
-    "LITELLM_API_KEY": "@litellm_api_key",
-    "LITELLM_BASE_URL": "@litellm_base_url",
-    "NEO4J_URI": "@neo4j_uri",
-    "NEO4J_USERNAME": "@neo4j_username",
-    "NEO4J_PASSWORD": "@neo4j_password"
-  }
-}
-```
+Configure Vercel for deployment:
 
-### Step 7.2: Environment Variables Setup
-1. Go to Vercel dashboard
-2. Add environment variables:
-   - `LITELLM_API_KEY`
-   - `LITELLM_BASE_URL`
-   - `NEO4J_URI`
-   - `NEO4J_USERNAME`
-   - `NEO4J_PASSWORD`
+1. **Environment Variables**: Set up all required environment variables
+2. **Build Configuration**: Optimize build process
+3. **Domain Setup**: Configure custom domain if needed
+4. **SSL Configuration**: Ensure HTTPS is enabled
 
-### Step 7.3: Deploy to Vercel
-```bash
-# Install Vercel CLI
-npm i -g vercel
+**Test**: Verify deployment is successful and all features work
 
-# Deploy
-vercel --prod
-```
+### Step 7.2: Performance Optimization
+Optimize for production:
 
-**Test**: Verify deployment is successful and all features work on live URL
+1. **Query Caching**: Cache frequently used queries
+2. **Response Streaming**: Stream long responses
+3. **Rate Limiting**: Implement API rate limiting
+4. **Error Monitoring**: Set up error tracking and monitoring
+
+**Test**: Verify performance under load
+
+### Step 7.3: Security Hardening
+Implement security measures:
+
+1. **Input Validation**: Validate all user inputs
+2. **Query Sanitization**: Ensure Cypher queries are safe
+3. **Authentication**: Implement basic authentication if needed
+4. **CORS Configuration**: Configure CORS properly
+
+**Test**: Verify security measures are effective
 
 ---
 
-## ✅ Testing Checklist
+## ✅ Testing Strategy
 
-### Phase 1: Foundation
+### Phase 1: Foundation Testing
 - [ ] Next.js project starts successfully
 - [ ] Environment variables are loaded
 - [ ] Project structure is correct
 
-### Phase 2: Database
+### Phase 2: Database Testing
 - [ ] Neo4j connection test passes
 - [ ] Database constraints are created
 - [ ] Types are properly defined
 
-### Phase 3: Data Ingestion
-- [ ] Findings data is valid JSON
-- [ ] Ingestion API creates nodes and relationships
-- [ ] Graph query API returns data
+### Phase 3: Graph Construction Testing
+- [ ] All findings are loaded as nodes
+- [ ] Base relationships are created correctly
+- [ ] AI-enriched relationships are meaningful
+- [ ] Graph queries return expected results
 
-### Phase 4: AI Agents
-- [ ] LiteLLM connection works
-- [ ] Graph analysis agent responds
-- [ ] Chat API integrates with agent
+### Phase 4: Query Pipeline Testing
+- [ ] Natural language is correctly classified
+- [ ] Cypher queries are generated accurately
+- [ ] Query execution returns proper results
+- [ ] Response generation is coherent and helpful
 
-### Phase 5: Frontend
-- [ ] Main page loads with tabs
-- [ ] Chat interface sends/receives messages
-- [ ] Graph visualization displays data
-- [ ] Data ingestion component works
+### Phase 5: Agent Testing
+- [ ] Each agent performs its function correctly
+- [ ] Agent communication flow works
+- [ ] Reasoning steps are displayed properly
 
-### Phase 6: Advanced Features
-- [ ] Enhanced agent provides reasoning
-- [ ] Streaming responses work
-- [ ] Real-time features function
+### Phase 6: Frontend Testing
+- [ ] Chat interface is responsive and intuitive
+- [ ] Agent activity indicators work
+- [ ] Response formatting is correct
 
-### Phase 7: Deployment
+### Phase 7: Advanced Features Testing
+- [ ] Query suggestions are relevant
+- [ ] Graph visualization is interactive
+- [ ] Export functionality works
+
+### Phase 8: Deployment Testing
 - [ ] Vercel deployment succeeds
-- [ ] Environment variables are set
-- [ ] Live URL works correctly
+- [ ] All features work in production
+- [ ] Performance is acceptable
 
 ---
 
 ## 🎯 Success Criteria
 
-✅ **Frontend & UI/UX**: Clean, intuitive interface with real-time features
-✅ **Technical Implementation**: Well-structured, maintainable codebase
-✅ **Creativity & Problem-Solving**: Intelligent AI agents with reasoning
-✅ **AI Framework Usage**: Effective LiteLLM integration
+✅ **Frontend & UI/UX**: Clean, intuitive interface with real-time agent activity
+✅ **Technical Implementation**: Well-structured, maintainable codebase with proper separation of concerns
+✅ **Creativity & Problem-Solving**: Intelligent AI agents that provide meaningful security insights
+✅ **AI Framework Usage**: Effective use of LiteLLM with appropriate model selection
 ✅ **Deployment**: Successful Vercel deployment with working live link
 
 ---
 
-## 📝 Next Steps
+## 📝 Key Implementation Decisions
 
-1. **Enhance AI Agents**: Add more specialized agents (remediation, compliance, etc.)
-2. **Advanced Graph Features**: Implement graph algorithms for vulnerability clustering
-3. **Real-time Updates**: Add WebSocket support for live graph updates
-4. **Export Features**: Add PDF/CSV export capabilities
-5. **Authentication**: Implement user authentication and role-based access
-6. **Monitoring**: Add application monitoring and logging
+### Graph Construction Strategy
+- **Normalize First**: Create canonical nodes for all entities
+- **Rule-Based Edges**: Use Cypher to create relationships based on patterns
+- **AI Enrichment**: Use research data to create intelligent relationships
+- **One-Time Build**: Construct the graph once, query many times
+
+### Natural Language Query Flow
+- **Two-Stage LLM**: First model generates Cypher, second model summarizes results
+- **Model Selection**: GPT-4.1 for query generation, grok-3-mini/gemini-2.5-flash for summarization
+- **Safety First**: Validate all generated queries before execution
+- **Error Recovery**: Implement retry logic and graceful degradation
+
+### Agent Architecture
+- **Specialized Agents**: Each agent has a specific role and expertise
+- **Clear Communication**: Well-defined interfaces between agents
+- **Reasoning Transparency**: Show users how agents arrive at conclusions
+- **Scalable Design**: Easy to add new agents or modify existing ones
 
 ---
 
@@ -1146,16 +303,16 @@ vercel --prod
 ### Common Issues:
 1. **Neo4j Connection**: Ensure AuraDB instance is running and credentials are correct
 2. **LiteLLM API**: Verify API key and base URL are properly set
-3. **Environment Variables**: Check all variables are loaded in both development and production
-4. **CORS Issues**: Ensure API routes are properly configured
-5. **Build Errors**: Check TypeScript compilation and dependency versions
+3. **Query Generation**: Check that schema is properly formatted for the LLM
+4. **Graph Construction**: Verify that all relationships are created correctly
+5. **Agent Communication**: Ensure proper error handling between agents
 
-### Support:
-- Check Neo4j documentation for database issues
-- Review LiteLLM documentation for API problems
-- Consult Next.js documentation for framework issues
-- Use browser developer tools for frontend debugging
+### Performance Optimization:
+1. **Query Caching**: Cache frequently used queries to reduce database load
+2. **Response Streaming**: Stream long responses to improve perceived performance
+3. **Model Selection**: Use appropriate models for different tasks to optimize cost and speed
+4. **Database Indexing**: Ensure proper indexes are created for frequently queried properties
 
 ---
 
-This implementation guide provides a complete roadmap to build the VulnGraph system. Each step is testable and builds upon the previous steps, ensuring a solid foundation for the final product. 
+This implementation guide provides a comprehensive roadmap for building the VulnGraph system with a focus on backend-first development, intelligent graph construction, and effective natural language querying. 
