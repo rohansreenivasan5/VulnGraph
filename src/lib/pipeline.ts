@@ -60,7 +60,9 @@ export async function runPipeline(userMessage: string): Promise<PipelineResult> 
     }
   ];
   const cypherResp = await litellmChatCompletion({ messages: cypherPrompt, model: 'gpt-4.1' });
-  const cypher = cypherResp.choices[0].message.content.trim();
+  let cypher = cypherResp.choices[0].message.content.trim();
+  // Remove markdown code block if present
+  cypher = cypher.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim();
   reasoning.push({ step: 'Cypher Generation', details: `Generated Cypher:\n${cypher}` });
 
   // 4. Cypher safety validation
