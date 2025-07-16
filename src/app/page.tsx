@@ -44,11 +44,11 @@ export default function Home() {
   }
 
   return (
-    <main className="max-w-xl mx-auto p-8">
+    <main className="min-h-screen bg-black text-white font-sans max-w-xl mx-auto p-8">
       <h1 className="text-2xl font-bold mb-4">VulnGraph Chat Demo</h1>
       <form onSubmit={handleSubmit} className="mb-4 flex gap-2">
         <input
-          className="border rounded px-2 py-1 flex-1"
+          className="border rounded px-2 py-1 flex-1 bg-zinc-900 text-white placeholder-gray-400"
           type="text"
           placeholder="Ask a security question..."
           value={query}
@@ -63,13 +63,17 @@ export default function Home() {
           {loading ? "Loading..." : "Ask"}
         </button>
       </form>
-      {error && <div className="text-red-600 mb-2">{error}</div>}
+      {error && <div className="text-red-400 mb-2">{error}</div>}
       {result && (
-        <div className="bg-gray-50 border rounded p-4">
-          <h2 className="font-semibold mb-2">Answer</h2>
-          <div className="prose mb-4" dangerouslySetInnerHTML={{ __html: result.answer.replace(/\n/g, '<br/>') }} />
-          <h3 className="font-semibold mt-4">Reasoning Steps</h3>
-          <ol className="list-decimal ml-6">
+        <div className="bg-zinc-900 border border-zinc-700 rounded p-4 text-white">
+          <h2 className="font-semibold mb-2 text-lg">Answer</h2>
+          <div
+            className="prose prose-invert mb-4 text-white"
+            style={{ color: "#fff" }}
+            dangerouslySetInnerHTML={{ __html: result.answer.replace(/\n/g, '<br/>') }}
+          />
+          <h3 className="font-semibold mt-4 text-base">Reasoning Steps</h3>
+          <ol className="list-decimal ml-6 text-white">
             {result.reasoning?.map((r: ReasoningStep, i: number) => (
               <li key={i}><b>{r.step}:</b> {r.details}</li>
             ))}
@@ -77,7 +81,7 @@ export default function Home() {
           {result.cypher && (
             <div className="mt-4">
               <h4 className="font-semibold">Cypher Query</h4>
-              <pre className="bg-gray-200 p-2 rounded text-xs overflow-x-auto">{result.cypher}</pre>
+              <pre className="bg-zinc-800 p-2 rounded text-xs overflow-x-auto text-green-300">{result.cypher}</pre>
             </div>
           )}
         </div>
