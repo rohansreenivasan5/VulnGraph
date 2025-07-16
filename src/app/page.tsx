@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface ReasoningStep {
   step: string;
@@ -67,11 +69,9 @@ export default function Home() {
       {result && (
         <div className="bg-zinc-900 border border-zinc-700 rounded p-4 text-white">
           <h2 className="font-semibold mb-2 text-lg">Answer</h2>
-          <div
-            className="prose prose-invert mb-4 text-white"
-            style={{ color: "#fff" }}
-            dangerouslySetInnerHTML={{ __html: result.answer.replace(/\n/g, '<br/>') }}
-          />
+          <div className="prose prose-invert mb-4 text-white">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown>
+          </div>
           <h3 className="font-semibold mt-4 text-base">Reasoning Steps</h3>
           <ol className="list-decimal ml-6 text-white">
             {result.reasoning?.map((r: ReasoningStep, i: number) => (
