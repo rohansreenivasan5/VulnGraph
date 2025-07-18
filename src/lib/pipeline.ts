@@ -42,7 +42,7 @@ export async function runPipeline(userMessage: string): Promise<PipelineResult> 
   let intentJson: { intent: string; entities: Record<string, unknown> } = { intent: '', entities: {} };
   try {
     intentJson = JSON.parse(intentResp.choices[0].message.content.trim());
-  } catch (e) {
+  } catch {
     reasoning.push({ step: 'Intent Extraction', details: `Failed to parse LLM response: ${intentResp.choices[0].message.content}` });
     return { answer: 'Sorry, I could not understand your question.', reasoning, cypher: null, rawResults: null };
   }
@@ -52,7 +52,13 @@ export async function runPipeline(userMessage: string): Promise<PipelineResult> 
   const cypherPrompt: LiteLLMChatMessage[] = [
     {
       role: 'system',
-      content: `You are an expert Cypher query generator for a Neo4j vulnerability knowledge graph. Use ONLY the schema and query patterns in the following guide. Generate a Cypher query that answers the user's question as a security analyst would. Use relationships (e.g., exploit chains, root cause, compliance, similarity) when relevant. If the question is broad, group or aggregate results by severity or type, and limit to the most relevant findings. If the question is about relationships, follow the relevant relationships. Only output the Cypher code, nothing else.\n\nSCHEMA GUIDE:\n${schemaGuide}`
+      content: `You are an expert Cypher query generator for a Neo4j vulnerability knowledge graph. Use ONLY the schema and query patterns in the following guide. Generate a Cypher query that answers the user's question as a security analyst would. 
+
+IMPORTANT: Always try to include relationships when possible to create rich graph visualizations. For example:
+- Instead of "MATCH (f:Finding) RETURN f", use "MATCH (f:Finding)-[:AFFECTS]->(a:Asset) RETURN f, a"
+- Instead of "MATCH (s:Service) RETURN s", use "MATCH (s:Service)<-[:BELONGS_TO_SERVICE]-(a:Asset)<-[:AFFECTS]-(f:Finding) RETURN s, a, f"
+
+Use relationships (e.g., AFFECTS, BELONGS_TO_SERVICE, DETECTED_BY, exploit chains, root cause, compliance, similarity) when relevant. If the question is broad, group or aggregate results by severity or type, and limit to the most relevant findings. Only output the Cypher code, nothing else.\n\nSCHEMA GUIDE:\n${schemaGuide}`
     },
     {
       role: 'user',
