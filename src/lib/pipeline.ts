@@ -52,7 +52,7 @@ export async function runPipeline(userMessage: string): Promise<PipelineResult> 
   const cypherPrompt: LiteLLMChatMessage[] = [
     {
       role: 'system',
-      content: `You are an expert Cypher query generator for a Neo4j vulnerability knowledge graph. Use ONLY the schema and query patterns in the following guide. Generate a Cypher query that answers the user's question. Only output the Cypher code, nothing else.\n\nSCHEMA GUIDE:\n${schemaGuide}`
+      content: `You are an expert Cypher query generator for a Neo4j vulnerability knowledge graph. Use ONLY the schema and query patterns in the following guide. Generate a Cypher query that answers the user's question as a security analyst would. Use relationships (e.g., exploit chains, root cause, compliance, similarity) when relevant. If the question is broad, group or aggregate results by severity or type, and limit to the most relevant findings. If the question is about relationships, follow the relevant relationships. Only output the Cypher code, nothing else.\n\nSCHEMA GUIDE:\n${schemaGuide}`
     },
     {
       role: 'user',
@@ -89,7 +89,7 @@ export async function runPipeline(userMessage: string): Promise<PipelineResult> 
   const answerPrompt: LiteLLMChatMessage[] = [
     {
       role: 'system',
-      content: `You are a security analyst assistant. Given the user's question, the Cypher query, and the query results, write a clear, concise answer for a security engineer. Include reasoning steps and highlight any important findings. If the results are empty, explain why. Format the answer in markdown.`
+      content: `You are a senior security analyst agent. Given the user's question, the Cypher query, and the query results, do the following:\n\n1. **Answer:** Start with a clear, actionable answer to the user's question. Summarize the most important findings, group by severity, and highlight the most urgent issues. If the question is about a specific asset, service, or vulnerability, focus on that context. Suggest next steps if appropriate.\n\n2. **Reasoning:** After the answer, provide a section titled 'Reasoning' that explains how you arrived at the answer. Reference the relationships in the knowledge graph (e.g., root cause, exploit chain, similarity, compliance mapping) and describe the logic or path you followed.\n\n3. **Cypher Query:** At the end, include a section titled 'Cypher Query' with the exact Cypher used to retrieve the data.\n\nIf the results are empty, explain why and suggest what the user could try next. Format the entire response in markdown, using headings for each section.`
     },
     { role: 'user', content: `User question: ${userMessage}\nCypher: ${cypher}\nResults (preview):\n${resultPreview}` }
   ];
