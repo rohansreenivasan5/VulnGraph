@@ -3,6 +3,8 @@ import { useState } from "react";
 
 import GraphPanel from "@/components/graph/GraphPanel";
 import ChatPanel from "@/components/chat/ChatPanel";
+import TableView from "@/components/ui/TableView";
+import { transformNeo4jToGraph } from "@/lib/graphTransform";
 
 interface ReasoningStep {
   step: string;
@@ -21,6 +23,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ResultType | null>(null);
   const [error, setError] = useState<string | null>(null);
+  
+  // Transform Neo4j results to graph format
+  const transformedResult = result?.rawResults ? transformNeo4jToGraph(result.rawResults as unknown[]) : null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -50,7 +55,18 @@ export default function Home() {
     <main className="min-h-screen h-screen min-w-0 w-full bg-black text-white font-sans flex flex-row max-w-full mx-auto p-8 gap-4">
       {/* Graph Panel (Left/Main) */}
       <section className="flex-1 min-w-0 min-h-0 h-full">
-        <GraphPanel graphData={result?.rawResults as { nodes: unknown[]; links: unknown[] } | undefined} />
+        {transformedResult?.type === 'graph' && transformedResult.graph ? (
+          <GraphPanel graphData={transformedResult.graph} />
+        ) : transformedResult?.type === 'table' && transformedResult.table ? (
+          <TableView data={transformedResult.table} />
+        ) : (
+          <div className="w-full h-full bg-zinc-900 border border-zinc-700 rounded flex items-center justify-center text-gray-400">
+            <div className="text-center">
+              <p className="text-lg mb-2">No data available</p>
+              <p className="text-sm">Run a query to see the results</p>
+            </div>
+          </div>
+        )}
       </section>
       {/* Chat Panel (Right) */}
       <aside className="relative bg-zinc-950 w-[400px] max-w-[50vw] h-full min-h-0 flex-shrink-0 overflow-auto">

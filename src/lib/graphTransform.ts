@@ -1,6 +1,6 @@
 /**
- * Transforms Neo4j Cypher query results into graph visualization format
- * Handles different result patterns: nodes, relationships, paths, and aggregations
+ * Transforms Neo4j query results into graph visualization format
+ * Based on actual Neo4j result structure analysis
  */
 
 export interface GraphNode {
@@ -8,6 +8,7 @@ export interface GraphNode {
   name: string;
   type: string;
   properties: Record<string, unknown>;
+  severity?: string;
   [key: string]: unknown;
 }
 
@@ -37,26 +38,25 @@ export interface TransformResult {
 }
 
 /**
- * Checks if a value is a Neo4j node object
+ * Checks if a value is a Neo4j node (has labels and properties)
  */
 function isNeo4jNode(value: unknown): boolean {
   return (
     typeof value === 'object' &&
     value !== null &&
-    'identity' in value &&
     'labels' in value &&
-    'properties' in value
+    'properties' in value &&
+    'elementId' in value
   );
 }
 
 /**
- * Checks if a value is a Neo4j relationship object
+ * Checks if a value is a Neo4j relationship (has type, start, end)
  */
 function isNeo4jRelationship(value: unknown): boolean {
   return (
     typeof value === 'object' &&
     value !== null &&
-    'identity' in value &&
     'type' in value &&
     'start' in value &&
     'end' in value &&
@@ -65,20 +65,7 @@ function isNeo4jRelationship(value: unknown): boolean {
 }
 
 /**
- * Checks if a value is a Neo4j path object
- */
-function isNeo4jPath(value: unknown): boolean {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'start' in value &&
-    'end' in value &&
-    'segments' in value
-  );
-}
-
-/**
- * Extracts a unique identifier from a Neo4j node
+ * Extracts unique identifier from Neo4j node
  */
 function getNodeId(node: any): string {
   // Try common ID properties first
@@ -87,29 +74,54 @@ function getNodeId(node: any): string {
   if (node.properties?.owasp_id) return node.properties.owasp_id;
   if (node.properties?.cwe_id) return node.properties.cwe_id;
   
-  // Fall back to Neo4j internal ID
-  return node.identity?.toString() || `node_${Math.random().toString(36).substr(2, 9)}`;
+  // Use elementId as fallback
+  return node.elementId || node.identity?.low?.toString() || `node_${Math.random().toString(36).substr(2, 9)}`;
 }
 
 /**
- * Extracts a display name from a Neo4j node
+ * Extracts display name from Neo4j node
  */
 function getNodeName(node: any): string {
-  // Try common name properties
-  if (node.properties?.title) return node.properties.title;
-  if (node.properties?.name) return node.properties.name;
-  if (node.properties?.finding_id) return node.properties.finding_id;
-  if (node.properties?.owasp_id) return node.properties.owasp_id;
-  if (node.properties?.cwe_id) return node.properties.cwe_id;
-  
-  // Fall back to label + ID
+  // Try common name properties based on node type
   const label = node.labels?.[0] || 'Node';
-  const id = getNodeId(node);
-  return `${label} ${id}`;
+  
+  if (label === 'Finding') {
+    return node.properties?.title || node.properties?.finding_id || 'Unknown Finding';
+  }
+  
+  if (label === 'Asset') {
+    if (node.properties?.url) return node.properties.url;
+    if (node.properties?.path) return node.properties.path;
+    if (node.properties?.image) return node.properties.image;
+    return `${node.properties?.type || 'Asset'}`;
+  }
+  
+  if (label === 'Service') {
+    return node.properties?.name || 'Unknown Service';
+  }
+  
+  if (label === 'Scanner') {
+    return node.properties?.name || 'Unknown Scanner';
+  }
+  
+  if (label === 'OWASP') {
+    return node.properties?.name || node.properties?.owasp_id || 'OWASP Category';
+  }
+  
+  if (label === 'CWE') {
+    return node.properties?.name || node.properties?.cwe_id || 'CWE Category';
+  }
+  
+  if (label === 'Package') {
+    return `${node.properties?.name || 'Package'}${node.properties?.version ? ` v${node.properties.version}` : ''}`;
+  }
+  
+  // Generic fallback
+  return node.properties?.name || node.properties?.title || `${label} ${getNodeId(node)}`;
 }
 
 /**
- * Converts a Neo4j node to GraphNode format
+ * Converts Neo4j node to GraphNode format
  */
 function convertNode(node: any): GraphNode {
   const id = getNodeId(node);
@@ -121,31 +133,22 @@ function convertNode(node: any): GraphNode {
     name,
     type,
     properties: node.properties || {},
+    severity: node.properties?.severity || undefined,
     labels: node.labels || [],
-    severity: node.properties?.severity || null,
-    scanner: node.properties?.scanner || null,
+    elementId: node.elementId,
   };
 }
 
 /**
- * Converts a Neo4j relationship to GraphLink format
+ * Converts Neo4j relationship to GraphLink format
  */
-function convertRelationship(relationship: any, nodeMap: Map<string, GraphNode>): GraphLink | null {
-  const startId = relationship.start?.toString();
-  const endId = relationship.end?.toString();
+function convertRelationship(relationship: any, nodeIdMap: Map<string, string>): GraphLink | null {
+  // Map Neo4j internal IDs to our graph node IDs
+  const startElementId = relationship.startNodeElementId || relationship.start?.toString();
+  const endElementId = relationship.endNodeElementId || relationship.end?.toString();
   
-  // Find the actual node IDs from our node map
-  let sourceId: string | null = null;
-  let targetId: string | null = null;
-  
-  for (const [nodeId, node] of nodeMap) {
-    if (node.properties?.identity?.toString() === startId) {
-      sourceId = nodeId;
-    }
-    if (node.properties?.identity?.toString() === endId) {
-      targetId = nodeId;
-    }
-  }
+  const sourceId = nodeIdMap.get(startElementId);
+  const targetId = nodeIdMap.get(endElementId);
   
   if (!sourceId || !targetId) {
     console.warn('Could not find source or target node for relationship:', relationship);
@@ -161,24 +164,6 @@ function convertRelationship(relationship: any, nodeMap: Map<string, GraphNode>)
 }
 
 /**
- * Extracts nodes and relationships from Neo4j path objects
- */
-function extractFromPath(path: any): { nodes: any[]; relationships: any[] } {
-  const nodes: any[] = [];
-  const relationships: any[] = [];
-  
-  if (path.segments) {
-    for (const segment of path.segments) {
-      if (segment.start) nodes.push(segment.start);
-      if (segment.end) nodes.push(segment.end);
-      if (segment.relationship) relationships.push(segment.relationship);
-    }
-  }
-  
-  return { nodes, relationships };
-}
-
-/**
  * Main transformation function
  */
 export function transformNeo4jToGraph(results: unknown[]): TransformResult {
@@ -191,44 +176,46 @@ export function transformNeo4jToGraph(results: unknown[]): TransformResult {
   
   const nodes = new Map<string, GraphNode>();
   const relationships: any[] = [];
+  const nodeIdMap = new Map<string, string>(); // Maps Neo4j elementId to our graph node ID
   let hasGraphData = false;
   
-  // Process each result row
+  // First pass: collect all nodes and build ID mapping
   for (const result of results) {
     if (typeof result !== 'object' || result === null) continue;
     
-    // Process each value in the result row
     for (const [key, value] of Object.entries(result)) {
       if (isNeo4jNode(value)) {
         hasGraphData = true;
         const node = convertNode(value);
         nodes.set(node.id, node);
-      } else if (isNeo4jRelationship(value)) {
-        hasGraphData = true;
-        relationships.push(value);
-      } else if (isNeo4jPath(value)) {
-        hasGraphData = true;
-        const { nodes: pathNodes, relationships: pathRels } = extractFromPath(value);
         
-        // Add path nodes
-        for (const node of pathNodes) {
-          const graphNode = convertNode(node);
-          nodes.set(graphNode.id, graphNode);
+        // Map Neo4j elementId to our graph node ID
+        if (value.elementId) {
+          nodeIdMap.set(value.elementId, node.id);
         }
-        
-        // Add path relationships
-        relationships.push(...pathRels);
       }
     }
   }
   
-  // If we found graph data, return it
+  // Second pass: collect relationships
+  for (const result of results) {
+    if (typeof result !== 'object' || result === null) continue;
+    
+    for (const [key, value] of Object.entries(result)) {
+      if (isNeo4jRelationship(value)) {
+        hasGraphData = true;
+        relationships.push(value);
+      }
+    }
+  }
+  
+  // If we have graph data, return it
   if (hasGraphData && nodes.size > 0) {
     const links: GraphLink[] = [];
     
     // Convert relationships to links
     for (const rel of relationships) {
-      const link = convertRelationship(rel, nodes);
+      const link = convertRelationship(rel, nodeIdMap);
       if (link) {
         links.push(link);
       }
@@ -253,15 +240,16 @@ export function transformNeo4jToGraph(results: unknown[]): TransformResult {
       
       for (const [key, value] of Object.entries(result)) {
         columns.add(key);
+        
         // Simplify complex objects for table display
-        if (typeof value === 'object' && value !== null) {
-          if (isNeo4jNode(value)) {
-            row[key] = getNodeName(value);
-          } else if (Array.isArray(value)) {
-            row[key] = value.join(', ');
-          } else {
-            row[key] = JSON.stringify(value);
-          }
+        if (isNeo4jNode(value)) {
+          row[key] = getNodeName(value);
+        } else if (isNeo4jRelationship(value)) {
+          row[key] = value.type;
+        } else if (Array.isArray(value)) {
+          row[key] = value.join(', ');
+        } else if (typeof value === 'object' && value !== null) {
+          row[key] = JSON.stringify(value);
         } else {
           row[key] = value;
         }
@@ -281,43 +269,47 @@ export function transformNeo4jToGraph(results: unknown[]): TransformResult {
 }
 
 /**
- * Utility function to create sample graph data for testing
+ * Utility function to get node color based on type and severity
  */
-export function createSampleGraphData(): GraphData {
-  return {
-    nodes: [
-      {
-        id: 'F-001',
-        name: 'SQL Injection in Login',
-        type: 'Finding',
-        properties: { severity: 'CRITICAL', scanner: 'DAST' }
-      },
-      {
-        id: 'A-001',
-        name: '/api/login',
-        type: 'Asset',
-        properties: { type: 'api_endpoint', service: 'auth-service' }
-      },
-      {
-        id: 'S-001',
-        name: 'auth-service',
-        type: 'Service',
-        properties: { type: 'microservice' }
-      }
-    ],
-    links: [
-      {
-        source: 'F-001',
-        target: 'A-001',
-        type: 'AFFECTS',
-        properties: {}
-      },
-      {
-        source: 'A-001',
-        target: 'S-001',
-        type: 'BELONGS_TO_SERVICE',
-        properties: {}
-      }
-    ]
-  };
+export function getNodeColor(node: GraphNode): string {
+  if (node.type === 'Finding') {
+    switch (node.severity) {
+      case 'CRITICAL': return '#dc2626'; // red-600
+      case 'HIGH': return '#ea580c'; // orange-600
+      case 'MEDIUM': return '#d97706'; // amber-600
+      case 'LOW': return '#16a34a'; // green-600
+      default: return '#6b7280'; // gray-500
+    }
+  }
+  
+  switch (node.type) {
+    case 'Asset': return '#3b82f6'; // blue-500
+    case 'Service': return '#8b5cf6'; // purple-500
+    case 'Scanner': return '#06b6d4'; // cyan-500
+    case 'OWASP': return '#f59e0b'; // amber-500
+    case 'CWE': return '#ef4444'; // red-500
+    case 'Package': return '#84cc16'; // lime-500
+    default: return '#6b7280'; // gray-500
+  }
+}
+
+/**
+ * Utility function to get node size based on type and severity
+ */
+export function getNodeSize(node: GraphNode): number {
+  if (node.type === 'Finding') {
+    switch (node.severity) {
+      case 'CRITICAL': return 12;
+      case 'HIGH': return 10;
+      case 'MEDIUM': return 8;
+      case 'LOW': return 6;
+      default: return 8;
+    }
+  }
+  
+  switch (node.type) {
+    case 'Service': return 10;
+    case 'Asset': return 8;
+    default: return 6;
+  }
 }
