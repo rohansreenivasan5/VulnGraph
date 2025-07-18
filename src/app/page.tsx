@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+
+import GraphPanel from "@/components/graph/GraphPanel";
+import ChatPanel from "@/components/chat/ChatPanel";
 
 interface ReasoningStep {
   step: string;
@@ -46,46 +47,22 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-black text-white font-sans max-w-xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-4">VulnGraph Chat Demo</h1>
-      <form onSubmit={handleSubmit} className="mb-4 flex gap-2">
-        <input
-          className="border rounded px-2 py-1 flex-1 bg-zinc-900 text-white placeholder-gray-400"
-          type="text"
-          placeholder="Ask a security question..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          disabled={loading}
+    <main className="min-h-screen h-screen min-w-0 w-full bg-black text-white font-sans flex flex-row max-w-full mx-auto p-8 gap-4">
+      {/* Graph Panel (Left/Main) */}
+      <section className="flex-1 min-w-0 min-h-0 h-full">
+        <GraphPanel graphData={result?.rawResults as { nodes: unknown[]; links: unknown[] } | undefined} />
+      </section>
+      {/* Chat Panel (Right) */}
+      <aside className="relative bg-zinc-950 w-[400px] max-w-[50vw] h-full min-h-0 flex-shrink-0 overflow-auto">
+        <ChatPanel
+          query={query}
+          setQuery={setQuery}
+          loading={loading}
+          result={result}
+          error={error}
+          handleSubmit={handleSubmit}
         />
-        <button
-          className="bg-blue-600 text-white px-4 py-1 rounded disabled:opacity-50"
-          type="submit"
-          disabled={loading || !query.trim()}
-        >
-          {loading ? "Loading..." : "Ask"}
-        </button>
-      </form>
-      {error && <div className="text-red-400 mb-2">{error}</div>}
-      {result && (
-        <div className="bg-zinc-900 border border-zinc-700 rounded p-4 text-white">
-          <h2 className="font-semibold mb-2 text-lg">Answer</h2>
-          <div className="prose prose-invert mb-4 text-white">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.answer}</ReactMarkdown>
-          </div>
-          <h3 className="font-semibold mt-4 text-base">Reasoning Steps</h3>
-          <ol className="list-decimal ml-6 text-white">
-            {result.reasoning?.map((r: ReasoningStep, i: number) => (
-              <li key={i}><b>{r.step}:</b> {r.details}</li>
-            ))}
-          </ol>
-          {result.cypher && (
-            <div className="mt-4">
-              <h4 className="font-semibold">Cypher Query</h4>
-              <pre className="bg-zinc-800 p-2 rounded text-xs overflow-x-auto text-green-300">{result.cypher}</pre>
-            </div>
-          )}
-        </div>
-      )}
+      </aside>
     </main>
   );
 }
