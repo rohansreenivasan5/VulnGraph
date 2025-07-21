@@ -143,27 +143,27 @@ graph TD
 
 ### 5.1. **List all findings with severity CRITICAL**
 ```cypher
-MATCH (f:Finding) WHERE f.severity = 'CRITICAL' RETURN f.finding_id, f.title, f.description
+MATCH (f:Finding) WHERE f.severity = 'CRITICAL' RETURN f
 ```
 
 ### 5.2. **Find all assets affected by HIGH or CRITICAL findings**
 ```cypher
 MATCH (f:Finding)-[:AFFECTS]->(a:Asset)
 WHERE f.severity IN ['HIGH', 'CRITICAL']
-RETURN f.finding_id, f.title, a.type, a.url, a.path, a.image
+RETURN f, a
 ```
 
 ### 5.3. **Get all findings for a given service**
 ```cypher
 MATCH (f:Finding)-[:AFFECTS]->(a:Asset)-[:BELONGS_TO_SERVICE]->(s:Service)
 WHERE s.name = 'order-svc'
-RETURN f.finding_id, f.title, f.severity, a.type, a.url, a.path, a.image
+RETURN f, a, s
 ```
 
 ### 5.4. **Show all findings related by root cause**
 ```cypher
 MATCH (f1:Finding)-[r:SAME_ROOT_CAUSE]->(f2:Finding)
-RETURN f1.finding_id, f2.finding_id, r.reason
+RETURN f1, r, f2
 ```
 
 ### 5.5. **Trace an exploit chain starting from a finding**
@@ -183,19 +183,19 @@ ORDER BY finding_count DESC
 ```cypher
 MATCH (f:Finding)-[:BELONGS_TO_OWASP]->(o:OWASP)
 WHERE o.owasp_id = 'A03:2021'
-RETURN f.finding_id, f.title, f.severity
+RETURN f, o
 ```
 
 ### 5.8. **Get all similar findings to a given finding**
 ```cypher
 MATCH (f:Finding {finding_id: 'F-101'})-[:SIMILAR_TO]->(other:Finding)
-RETURN other.finding_id, other.title, other.severity
+RETURN f, other
 ```
 
 ### 5.9. **Show all packages involved in findings**
 ```cypher
 MATCH (f:Finding)-[:USES_VULNERABLE_PACKAGE]->(p:Package)
-RETURN p.name, p.version, count(f) as finding_count
+RETURN f, p
 ```
 
 ---

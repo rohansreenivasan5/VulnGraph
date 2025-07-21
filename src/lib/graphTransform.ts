@@ -228,21 +228,27 @@ export function transformNeo4jToGraph(results: unknown[]): TransformResult {
       if (isNeo4jRelationship(value)) {
         hasGraphData = true;
         relationships.push(value as Neo4jRelationship);
+        console.log('🔗 Found relationship:', value);
       }
     }
   }
   
   // If we have graph data, return it
-  if (hasGraphData && nodes.size > 0) {
+  if (nodes.size > 0) {
     const links: GraphLink[] = [];
     
     // Convert relationships to links
+    console.log('🔗 Converting relationships:', relationships.length, 'total');
     for (const rel of relationships) {
       const link = convertRelationship(rel, nodeIdMap);
       if (link) {
         links.push(link);
+        console.log('✅ Added link:', link);
+      } else {
+        console.log('❌ Failed to convert relationship:', rel);
       }
     }
+    console.log('🔗 Final links:', links.length);
     
     // Always return graph view if we have nodes, even without relationships
     return {
