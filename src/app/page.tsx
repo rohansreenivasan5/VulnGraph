@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import GraphPanel from "@/components/graph/GraphPanel";
 import ChatPanel from "@/components/chat/ChatPanel";
@@ -23,9 +23,22 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ResultType | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Track which view is selected: 'graph' or 'table'
+  const [view, setView] = useState<'graph' | 'table'>('graph');
   
   // Transform Neo4j results to graph format
   const transformedResult = result?.rawResults ? transformNeo4jToGraph(result.rawResults as unknown[]) : null;
+
+  // Set default view when new result arrives
+  useEffect(() => {
+    if (transformedResult) {
+      if (transformedResult.table && transformedResult.table.rows.length > 0) {
+        setView('table');
+      } else if (transformedResult.graph) {
+        setView('graph');
+      }
+    }
+  }, [transformedResult?.type]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -51,17 +64,44 @@ export default function Home() {
     }
   }
 
+  // Helper: is there both a graph and a table?
+  const hasGraph = !!transformedResult?.graph;
+  const hasTable = !!transformedResult?.table && transformedResult.table.rows.length > 0;
+  const showToggle = hasGraph && hasTable;
+
   return (
     <>
       <header className="w-full text-center py-4 bg-zinc-950 border-b border-zinc-800 mb-4">
         <h1 className="text-3xl font-bold tracking-tight text-white">Vulnerability Explorer</h1>
       </header>
       <main className="min-h-screen h-screen min-w-0 w-full bg-black text-white font-sans flex flex-row max-w-full mx-auto p-8 gap-4">
-        {/* Graph Panel (Left/Main) */}
+        {/* Graph/Table Panel (Left/Main) */}
         <section className="flex-1 min-w-0 min-h-0 h-full">
-          {transformedResult?.type === 'graph' && transformedResult.graph ? (
+          {/* Toggle UI */}
+          {showToggle && (
+            <div className="flex gap-2 mb-4">
+              <button
+                className={`px-4 py-2 rounded font-semibold border border-zinc-700 transition-colors ${view === 'table' ? 'bg-zinc-800 text-white' : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800'}`}
+                onClick={() => setView('table')}
+                disabled={view === 'table'}
+                aria-pressed={view === 'table'}
+              >
+                Table View
+              </button>
+              <button
+                className={`px-4 py-2 rounded font-semibold border border-zinc-700 transition-colors ${view === 'graph' ? 'bg-zinc-800 text-white' : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800'}`}
+                onClick={() => setView('graph')}
+                disabled={view === 'graph'}
+                aria-pressed={view === 'graph'}
+              >
+                Graph View
+              </button>
+            </div>
+          )}
+          {/* Main Content */}
+          {view === 'graph' && hasGraph ? (
             <GraphPanel graphData={transformedResult.graph} />
-          ) : transformedResult?.type === 'table' && transformedResult.table ? (
+          ) : view === 'table' && hasTable && transformedResult.table ? (
             <TableView data={transformedResult.table} />
           ) : (
             <div className="w-full h-full bg-zinc-900 border border-zinc-700 rounded flex items-center justify-center text-gray-400">

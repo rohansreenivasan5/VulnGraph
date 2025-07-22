@@ -249,63 +249,73 @@ export function transformNeo4jToGraph(results: unknown[]): TransformResult {
     }
   }
 
-  // If we have graph data, return it
-  if (nodes.size > 0) {
-    const links: GraphLink[] = [];
-    // Convert relationships to links
-    for (const rel of relationships) {
-      const link = convertRelationship(rel, nodeIdMap);
-      if (link) {
-        links.push(link);
-      }
-    }
-    // Log the number of edges created (once per transform)
-    console.log(`[transformNeo4jToGraph] Created ${links.length} edges from ${relationships.length} relationships for ${nodes.size} nodes.`);
-    return {
-      type: 'graph',
-      graph: {
-        nodes: Array.from(nodes.values()),
-        links
-      }
-    };
-  }
-  
-  // If no graph data, return as table
+  // Always build table representation
   const columns = new Set<string>();
   const rows: Record<string, unknown>[] = [];
-  
   for (const result of results) {
     if (typeof result === 'object' && result !== null) {
       const row: Record<string, unknown> = {};
-      
       for (const [key, value] of Object.entries(result)) {
         columns.add(key);
-        
-        // Simplify complex objects for table display
-        if (isNeo4jNode(value)) {
+        // Enhanced array handling for table display
+        if (Array.isArray(value)) {
+          if (value.length > 0 && isNeo4jNode(value[0])) {
+            // Array of nodes: show their names
+            row[key] = value.map(v => getNodeName(v as Neo4jNode)).join(', ');
+          } else if (value.length > 0 && isNeo4jRelationship(value[0])) {
+            // Array of relationships: show their types
+            row[key] = value.map(v => String((v as Neo4jRelationship).type)).join(', ');
+          } else {
+            // Array of primitives or unknowns
+            row[key] = value.join(', ');
+          }
+        } else if (isNeo4jNode(value)) {
           row[key] = getNodeName(value as Neo4jNode);
         } else if (isNeo4jRelationship(value)) {
           row[key] = String((value as Neo4jRelationship).type);
-        } else if (Array.isArray(value)) {
-          row[key] = value.join(', ');
         } else if (typeof value === 'object' && value !== null) {
           row[key] = JSON.stringify(value);
         } else {
           row[key] = value;
         }
       }
-      
       rows.push(row);
     }
   }
-  
-  return {
-    type: 'table',
-    table: {
-      columns: Array.from(columns),
-      rows
-    }
+  const tableData: TableData = {
+    columns: Array.from(columns),
+    rows
   };
+
+  // Build graph representation if possible
+  let graphData: GraphData | undefined = undefined;
+  if (nodes.size > 0) {
+    const links: GraphLink[] = [];
+    for (const rel of relationships) {
+      const link = convertRelationship(rel, nodeIdMap);
+      if (link) {
+        links.push(link);
+      }
+    }
+    graphData = {
+      nodes: Array.from(nodes.values()),
+      links
+    };
+  }
+
+  // Decide default type: prefer graph if available, else table
+  if (graphData) {
+    return {
+      type: 'graph',
+      graph: graphData,
+      table: tableData
+    };
+  } else {
+    return {
+      type: 'table',
+      table: tableData
+    };
+  }
 }
 
 /**
