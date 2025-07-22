@@ -30,6 +30,7 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [zoomLevel, setZoomLevel] = useState(0.25); // Track current zoom
   
   const data =
     graphData && Array.isArray(graphData.nodes) && Array.isArray(graphData.links)
@@ -52,7 +53,7 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
   // Remove zoom/fit logic from useEffect and only set charge force
   useEffect(() => {
     if (fgRef.current && data.nodes.length > 0) {
-      fgRef.current.d3Force('charge')?.strength(-70); // moderate repulsion
+      fgRef.current.d3Force('charge')?.strength(-100); // moderate repulsion
       fgRef.current.d3Force('link')?.distance(400).strength(1);    // closer clusters
       fgRef.current.d3Force('collide', d3.forceCollide(30)); // more separation within cluster
       fgRef.current.d3ReheatSimulation?.();
@@ -73,12 +74,29 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
   // Set static zoom level once after mount
   useEffect(() => {
     if (fgRef.current) {
-      fgRef.current.zoom(0.25); // Set zoom to 50%
+      fgRef.current.zoom(zoomLevel);
     }
-  }, [dimensions.width, dimensions.height]);
+  }, [dimensions.width, dimensions.height, zoomLevel]);
   
   return (
     <div ref={containerRef} className="w-full h-full bg-zinc-900 border border-zinc-700 rounded relative overflow-hidden">
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
+        <button
+          className="bg-zinc-800 hover:bg-zinc-700 text-white rounded p-2 shadow"
+          aria-label="Zoom In"
+          onClick={() => setZoomLevel(z => Math.min(z * 1.2, 5))}
+        >
+          +
+        </button>
+        <button
+          className="bg-zinc-800 hover:bg-zinc-700 text-white rounded p-2 shadow"
+          aria-label="Zoom Out"
+          onClick={() => setZoomLevel(z => Math.max(z * 0.8, 0.05))}
+        >
+          -
+        </button>
+      </div>
       {data.nodes.length === 0 ? (
         <div className="w-full h-full flex items-center justify-center text-gray-400">
           <div className="text-center">
