@@ -52,8 +52,8 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
   // Remove zoom/fit logic from useEffect and only set charge force
   useEffect(() => {
     if (fgRef.current && data.nodes.length > 0) {
-      fgRef.current.d3Force('charge')?.strength(-200); // moderate repulsion
-      fgRef.current.d3Force('link')?.distance(200).strength(1);    // closer clusters
+      fgRef.current.d3Force('charge')?.strength(-70); // moderate repulsion
+      fgRef.current.d3Force('link')?.distance(400).strength(1);    // closer clusters
       fgRef.current.d3Force('collide', d3.forceCollide(30)); // more separation within cluster
       fgRef.current.d3ReheatSimulation?.();
     }
@@ -69,6 +69,13 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
       console.warn('Links dropped because endpoint missing:', bad);
     }
   }, [data]);
+  
+  // Set static zoom level once after mount
+  useEffect(() => {
+    if (fgRef.current) {
+      fgRef.current.zoom(0.25); // Set zoom to 50%
+    }
+  }, [dimensions.width, dimensions.height]);
   
   return (
     <div ref={containerRef} className="w-full h-full bg-zinc-900 border border-zinc-700 rounded relative overflow-hidden">
@@ -124,9 +131,6 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
           d3AlphaDecay={0.01}
           d3VelocityDecay={0.07}
           cooldownTicks={800}
-          onEngineStop={() => {
-            fgRef.current?.zoomToFit(400, 40, () => true);
-          }}
           nodeLabel={(node) => {
             const n = node as GraphNode;
             return `${n.name}\nType: ${n.type}${n.severity ? `\nSeverity: ${n.severity}` : ''}`;
