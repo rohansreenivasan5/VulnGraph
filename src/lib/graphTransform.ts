@@ -139,10 +139,18 @@ function getNodeName(node: Neo4jNode): string {
 }
 
 /**
+ * Utility to normalize Neo4j IDs (handles int objects, numbers, strings)
+ */
+function normalizeId(v: unknown): string {
+  if (typeof v === 'object' && v !== null && 'low' in v) return String((v as { low: number }).low);
+  return String(v).trim();
+}
+
+/**
  * Converts Neo4j node to GraphNode format
  */
 function convertNode(node: Neo4jNode): GraphNode {
-  const id = getNodeId(node);
+  const id = normalizeId(getNodeId(node));
   const name = getNodeName(node);
   const type = node.labels?.[0] || 'Unknown';
   
@@ -162,19 +170,19 @@ function convertNode(node: Neo4jNode): GraphNode {
  */
 function convertRelationship(relationship: Neo4jRelationship, nodeIdMap: Map<string, string>): GraphLink | null {
   // Map Neo4j internal IDs to our graph node IDs
-  const startElementId = relationship.startNodeElementId || relationship.start?.toString();
-  const endElementId = relationship.endNodeElementId || relationship.end?.toString();
+  const startElementId = relationship.startNodeElementId || (relationship.start && normalizeId(relationship.start));
+  const endElementId = relationship.endNodeElementId || (relationship.end && normalizeId(relationship.end));
   
   if (!startElementId || !endElementId) {
     console.warn('Missing element IDs for relationship:', relationship);
     return null;
   }
   
-  const sourceId = nodeIdMap.get(startElementId);
-  const targetId = nodeIdMap.get(endElementId);
+  const sourceId = nodeIdMap.get(startElementId) || normalizeId(startElementId);
+  const targetId = nodeIdMap.get(endElementId) || normalizeId(endElementId);
   
   if (!sourceId || !targetId) {
-    console.warn('Could not find source or target node for relationship:', relationship);
+    console.warn('Could not find source or target node for relationship:', relationship, { startElementId, endElementId });
     return null;
   }
   
@@ -201,56 +209,58 @@ export function transformNeo4jToGraph(results: unknown[]): TransformResult {
   const relationships: Neo4jRelationship[] = [];
   const nodeIdMap = new Map<string, string>(); // Maps Neo4j elementId to our graph node ID
   let hasGraphData = false;
-  
-  // First pass: collect all nodes and build ID mapping
+
+  // Helper to add a node if not already present
+  function addNode(node: Neo4jNode) {
+    const graphNode = convertNode(node);
+    nodes.set(graphNode.id, graphNode);
+    if (node.elementId) {
+      nodeIdMap.set(node.elementId, graphNode.id);
+    }
+  }
+
+  // Helper to add a relationship
+  function addRelationship(rel: Neo4jRelationship) {
+    relationships.push(rel);
+  }
+
+  // First pass: collect all nodes and relationships, including from arrays (for path queries)
   for (const result of results) {
     if (typeof result !== 'object' || result === null) continue;
-    
     for (const [, value] of Object.entries(result)) {
-      if (isNeo4jNode(value)) {
-        hasGraphData = true;
-        const node = convertNode(value as Neo4jNode);
-        nodes.set(node.id, node);
-        
-        // Map Neo4j elementId to our graph node ID
-        if ((value as Neo4jNode).elementId) {
-          nodeIdMap.set((value as Neo4jNode).elementId!, node.id);
+      if (Array.isArray(value)) {
+        // Handle arrays of nodes or relationships (e.g., from nodes(path), relationships(path))
+        for (const v of value) {
+          if (isNeo4jNode(v)) {
+            hasGraphData = true;
+            addNode(v as Neo4jNode);
+          } else if (isNeo4jRelationship(v)) {
+            hasGraphData = true;
+            addRelationship(v as Neo4jRelationship);
+          }
         }
-      }
-    }
-  }
-  
-  // Second pass: collect relationships
-  for (const result of results) {
-    if (typeof result !== 'object' || result === null) continue;
-    
-    for (const [, value] of Object.entries(result)) {
-      if (isNeo4jRelationship(value)) {
+      } else if (isNeo4jNode(value)) {
         hasGraphData = true;
-        relationships.push(value as Neo4jRelationship);
-        console.log('🔗 Found relationship:', value);
+        addNode(value as Neo4jNode);
+      } else if (isNeo4jRelationship(value)) {
+        hasGraphData = true;
+        addRelationship(value as Neo4jRelationship);
       }
     }
   }
-  
+
   // If we have graph data, return it
   if (nodes.size > 0) {
     const links: GraphLink[] = [];
-    
     // Convert relationships to links
-    console.log('🔗 Converting relationships:', relationships.length, 'total');
     for (const rel of relationships) {
       const link = convertRelationship(rel, nodeIdMap);
       if (link) {
         links.push(link);
-        console.log('✅ Added link:', link);
-      } else {
-        console.log('❌ Failed to convert relationship:', rel);
       }
     }
-    console.log('🔗 Final links:', links.length);
-    
-    // Always return graph view if we have nodes, even without relationships
+    // Log the number of edges created (once per transform)
+    console.log(`[transformNeo4jToGraph] Created ${links.length} edges from ${relationships.length} relationships for ${nodes.size} nodes.`);
     return {
       type: 'graph',
       graph: {

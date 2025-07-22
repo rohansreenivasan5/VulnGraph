@@ -1,6 +1,9 @@
 "use client";
 import React, { useRef, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
+import type { ForceGraphMethods } from 'react-force-graph-2d';
+import type ForceGraph2DComponent from 'react-force-graph-2d';
+import * as d3 from 'd3-force';
 
 // Dynamically import ForceGraph2D with SSR disabled
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), { ssr: false });
@@ -25,6 +28,7 @@ const sampleData: GraphData = {
 
 const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   
   const data =
@@ -44,6 +48,27 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
   }, []);
+
+  // Remove zoom/fit logic from useEffect and only set charge force
+  useEffect(() => {
+    if (fgRef.current && data.nodes.length > 0) {
+      fgRef.current.d3Force('charge')?.strength(-200); // moderate repulsion
+      fgRef.current.d3Force('link')?.distance(200).strength(1);    // closer clusters
+      fgRef.current.d3Force('collide', d3.forceCollide(30)); // more separation within cluster
+      fgRef.current.d3ReheatSimulation?.();
+    }
+  }, [data.nodes.length, data.links && data.links.length]);
+  
+  // Runtime check for dropped links
+  useEffect(() => {
+    const nodeIds = new Set(data.nodes.map(n => n.id));
+    const bad = data.links.filter(
+      l => !nodeIds.has(String(l.source)) || !nodeIds.has(String(l.target))
+    );
+    if (bad.length) {
+      console.warn('Links dropped because endpoint missing:', bad);
+    }
+  }, [data]);
   
   return (
     <div ref={containerRef} className="w-full h-full bg-zinc-900 border border-zinc-700 rounded relative overflow-hidden">
@@ -91,10 +116,17 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
             </div>
           </div>
         <ForceGraph2D
+          ref={fgRef as React.MutableRefObject<ForceGraphMethods | undefined>}
           graphData={data}
-          width={800}
-          height={600}
+          width={dimensions.width}
+          height={dimensions.height}
           backgroundColor="#18181b"
+          d3AlphaDecay={0.01}
+          d3VelocityDecay={0.07}
+          cooldownTicks={800}
+          onEngineStop={() => {
+            fgRef.current?.zoomToFit(400, 40, () => true);
+          }}
           nodeLabel={(node) => {
             const n = node as GraphNode;
             return `${n.name}\nType: ${n.type}${n.severity ? `\nSeverity: ${n.severity}` : ''}`;
@@ -102,17 +134,17 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
           nodeColor={(node) => getNodeColor(node as GraphNode)}
           nodeVal={(node) => getNodeSize(node as GraphNode)}
           nodeRelSize={8}
-          linkColor={() => '#666666'}
+          linkColor={() => 'rgba(255,255,255,0.35)'}
           linkWidth={2}
-          linkDirectionalArrowLength={8}
-          linkDirectionalArrowRelPos={1}
+          linkDirectionalArrowLength={6}
+          linkDirectionalArrowRelPos={0.85}
           linkLabel={(link) => (link as GraphLink).type}
           linkDirectionalParticles={2}
           linkDirectionalParticleWidth={2}
           nodeCanvasObject={(node, ctx, globalScale) => {
             const n = node as GraphNode;
             const label = n.name;
-            const nodeRadius = getNodeSize(n) * 4;
+            const nodeRadius = getNodeSize(n) * 2;
             
             // Draw node circle
             ctx.beginPath();
@@ -123,25 +155,14 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
             ctx.lineWidth = 2;
             ctx.stroke();
             
-            // Draw label
+            // Draw label above the node
             const fontSize = Math.max(10, 14/globalScale);
             ctx.font = `${fontSize}px Inter, sans-serif`;
             ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
+            ctx.textBaseline = 'bottom';
             ctx.fillStyle = '#ffffff';
-            ctx.fillText(label, node.x || 0, (node.y || 0) + nodeRadius + 15/globalScale);
-            
-            // Draw type badge
-            const typeLabel = n.type;
-            const badgeFontSize = Math.max(8, 10/globalScale);
-            ctx.font = `${badgeFontSize}px Inter, sans-serif`;
-            ctx.fillStyle = '#94a3b8';
-            ctx.fillText(typeLabel, node.x || 0, (node.y || 0) + nodeRadius + 30/globalScale);
+            ctx.fillText(label, node.x || 0, (node.y || 0) - nodeRadius - 6/globalScale);
           }}
-          d3AlphaDecay={0.02}
-          d3VelocityDecay={0.08}
-          cooldownTicks={100}
-          onEngineStop={() => console.log('Graph layout stabilized')}
         />
         </>
       )}

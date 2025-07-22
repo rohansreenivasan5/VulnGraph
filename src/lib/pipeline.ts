@@ -54,9 +54,13 @@ export async function runPipeline(userMessage: string): Promise<PipelineResult> 
       role: 'system',
       content: `You are an expert Cypher query generator for a Neo4j vulnerability knowledge graph. Use ONLY the schema and query patterns in the following guide. Generate a Cypher query that answers the user's question as a security analyst would. 
 
-IMPORTANT: Always try to include relationships when possible to create rich graph visualizations. For example:
-- Instead of "MATCH (f:Finding) RETURN f", use "MATCH (f:Finding)-[:AFFECTS]->(a:Asset) RETURN f, a"
-- Instead of "MATCH (s:Service) RETURN s", use "MATCH (s:Service)<-[:BELONGS_TO_SERVICE]-(a:Asset)<-[:AFFECTS]-(f:Finding) RETURN s, a, f"
+IMPORTANT: Always include relationships in the RETURN clause for relationship/path/chain queries. For example:
+- Instead of "MATCH (f:Finding)-[:AFFECTS]->(a:Asset) RETURN f, a", use "MATCH (f:Finding)-[r:AFFECTS]->(a:Asset) RETURN f, r, a"
+- For path queries, use "MATCH path = ... RETURN nodes(path), relationships(path)"
+
+If the user's question is about exploit chains, chains, or multi-step attack paths, use a variable-length path query such as:
+MATCH path = (f:Finding)-[:EXPLOIT_CHAIN*1..3]->(end:Finding)
+RETURN nodes(path) AS findings, relationships(path) AS rels
 
 Use relationships (e.g., AFFECTS, BELONGS_TO_SERVICE, DETECTED_BY, exploit chains, root cause, compliance, similarity) when relevant. If the question is broad, group or aggregate results by severity or type, and limit to the most relevant findings. Only output the Cypher code, nothing else.\n\nSCHEMA GUIDE:\n${schemaGuide}`
     },
@@ -70,6 +74,28 @@ Use relationships (e.g., AFFECTS, BELONGS_TO_SERVICE, DETECTED_BY, exploit chain
   // Remove markdown code block if present
   cypher = cypher.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim();
   reasoning.push({ step: 'Cypher Generation', details: `Generated Cypher:\n${cypher}` });
+  // Log the Cypher query (truncate to 200 chars)
+  console.log('[runPipeline] Cypher query:', cypher.slice(0, 200));
+  // Fallback: If the query is a direct relationship query and does not return relationships, add them
+  if (/MATCH \(\w+:Finding\)-\[:\w+\]->\(\w+:Finding\)/.test(cypher) && !/RETURN.*\[.*\]/.test(cypher) && !/relationships?\(/.test(cypher)) {
+    // Try to add the relationship to the RETURN clause
+    cypher = cypher.replace(/RETURN\s+([^\n;]+)/, (m, p1) => {
+      // Find the relationship variable in the MATCH clause
+      const matchRel = cypher.match(/MATCH \((\w+):Finding\)-\[(\w*):([A-Z_]+)\]->\((\w+):Finding\)/);
+      if (matchRel) {
+        const relVar = matchRel[2] || 'r';
+        // If relVar is empty, add a variable
+        if (!matchRel[2]) {
+          // Add variable to MATCH
+          cypher = cypher.replace(/-\[:([A-Z_]+)\]->/, '-[r:$1]->');
+          return `RETURN ${p1}, r`;
+        }
+        return `RETURN ${p1}, ${relVar}`;
+      }
+      return m;
+    });
+    console.log('[runPipeline] Fallback-modified Cypher:', cypher.slice(0, 200));
+  }
 
   // 4. Cypher safety validation
   if (!isReadOnlyCypher(cypher)) {

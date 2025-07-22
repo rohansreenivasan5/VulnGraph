@@ -52,33 +52,38 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen h-screen min-w-0 w-full bg-black text-white font-sans flex flex-row max-w-full mx-auto p-8 gap-4">
-      {/* Graph Panel (Left/Main) */}
-      <section className="flex-1 min-w-0 min-h-0 h-full">
-        {transformedResult?.type === 'graph' && transformedResult.graph ? (
-          <GraphPanel graphData={transformedResult.graph} />
-        ) : transformedResult?.type === 'table' && transformedResult.table ? (
-          <TableView data={transformedResult.table} />
-        ) : (
-          <div className="w-full h-full bg-zinc-900 border border-zinc-700 rounded flex items-center justify-center text-gray-400">
-            <div className="text-center">
-              <p className="text-lg mb-2">No data available</p>
-              <p className="text-sm">Run a query to see the results</p>
+    <>
+      <header className="w-full text-center py-4 bg-zinc-950 border-b border-zinc-800 mb-4">
+        <h1 className="text-3xl font-bold tracking-tight text-white">Vulnerability Explorer</h1>
+      </header>
+      <main className="min-h-screen h-screen min-w-0 w-full bg-black text-white font-sans flex flex-row max-w-full mx-auto p-8 gap-4">
+        {/* Graph Panel (Left/Main) */}
+        <section className="flex-1 min-w-0 min-h-0 h-full">
+          {transformedResult?.type === 'graph' && transformedResult.graph ? (
+            <GraphPanel graphData={transformedResult.graph} />
+          ) : transformedResult?.type === 'table' && transformedResult.table ? (
+            <TableView data={transformedResult.table} />
+          ) : (
+            <div className="w-full h-full bg-zinc-900 border border-zinc-700 rounded flex items-center justify-center text-gray-400">
+              <div className="text-center">
+                <p className="text-lg mb-2">No data available</p>
+                <p className="text-sm">Run a query to see the results</p>
+              </div>
             </div>
-          </div>
-        )}
-      </section>
-      {/* Chat Panel (Right) */}
-      <aside className="relative bg-zinc-950 w-[400px] max-w-[50vw] h-full min-h-0 flex-shrink-0 overflow-auto">
-        <ChatPanel
-          query={query}
-          setQuery={setQuery}
-          loading={loading}
-          result={result}
-          error={error}
-          handleSubmit={handleSubmit}
-        />
-      </aside>
-    </main>
+          )}
+        </section>
+        {/* Chat Panel (Right) */}
+        <aside className="relative bg-zinc-950 w-[400px] max-w-[50vw] h-full min-h-0 flex-shrink-0 overflow-auto">
+          <ChatPanel
+            query={query}
+            setQuery={setQuery}
+            loading={loading}
+            result={result}
+            error={error}
+            handleSubmit={handleSubmit}
+          />
+        </aside>
+      </main>
+    </>
   );
 }

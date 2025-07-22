@@ -82,7 +82,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           {/* Reasoning Dropdown */}
           <div className="mt-2">
             <button
-              className="text-blue-400 underline text-sm mb-1"
+              className="text-sm mb-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors"
               type="button"
               onClick={() => setShowReasoning(v => !v)}
             >
@@ -100,7 +100,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           {result.cypher && (
             <div className="mt-2">
               <button
-                className="text-green-400 underline text-sm mb-1"
+                className="text-sm mb-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors"
                 type="button"
                 onClick={() => setShowCypher(v => !v)}
               >
