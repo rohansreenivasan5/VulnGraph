@@ -83,14 +83,14 @@ const GraphPanel: React.FC<GraphPanelProps> = ({ graphData }) => {
       {/* Zoom Controls */}
       <div className="absolute top-4 right-4 z-20 flex flex-col gap-2">
         <button
-          className="bg-zinc-800 hover:bg-zinc-700 text-white rounded p-2 shadow"
+          className="bg-zinc-800 hover:bg-red-500 text-white rounded-lg p-3 shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 border border-zinc-700 hover:border-red-500 font-semibold"
           aria-label="Zoom In"
           onClick={() => setZoomLevel(z => Math.min(z * 1.2, 5))}
         >
           +
         </button>
         <button
-          className="bg-zinc-800 hover:bg-zinc-700 text-white rounded p-2 shadow"
+          className="bg-zinc-800 hover:bg-red-500 text-white rounded-lg p-3 shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 border border-zinc-700 hover:border-red-500 font-semibold"
           aria-label="Zoom Out"
           onClick={() => setZoomLevel(z => Math.max(z * 0.8, 0.05))}
         >

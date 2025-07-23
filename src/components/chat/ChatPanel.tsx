@@ -38,19 +38,26 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     <div className="min-h-0 min-w-0 w-full flex flex-col bg-zinc-950 border border-zinc-800 rounded p-4 overflow-x-auto break-words max-w-full">
       <form onSubmit={handleSubmit} className="mb-4 flex gap-2 min-w-0 max-w-full">
         <input
-          className="border rounded px-2 py-1 flex-1 bg-zinc-900 text-white placeholder-gray-400 min-w-0 max-w-full"
+          className="border border-zinc-700 rounded-lg px-4 py-3 flex-1 bg-zinc-900 text-white placeholder-gray-400 min-w-0 max-w-full focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200 font-medium"
           type="text"
-          placeholder="Ask a security question..."
+          placeholder="Show me exploits..."
           value={query}
           onChange={e => setQuery(e.target.value)}
           disabled={loading}
         />
         <button
-          className="bg-blue-600 text-white px-4 py-1 rounded disabled:opacity-50 min-w-0 max-w-full"
+          className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-lg disabled:opacity-50 min-w-0 max-w-full font-semibold tracking-wide transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 focus:ring-offset-zinc-900 shadow-lg hover:shadow-xl"
           type="submit"
           disabled={loading || !query.trim()}
         >
-          {loading ? "Loading..." : "Ask"}
+          {loading ? (
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span>Loading...</span>
+            </div>
+          ) : (
+            "Ask"
+          )}
         </button>
       </form>
       {error && <div className="text-red-400 mb-2 break-words overflow-x-auto min-w-0 max-w-full">{error}</div>}
@@ -82,7 +89,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           {/* Reasoning Dropdown */}
           <div className="mt-2">
             <button
-              className="text-sm mb-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors"
+              className="text-sm mb-1 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-red-500 hover:text-white transition-all duration-200 border border-zinc-700 hover:border-red-500 font-medium tracking-wide transform hover:scale-105"
               type="button"
               onClick={() => setShowReasoning(v => !v)}
             >
@@ -100,7 +107,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           {result.cypher && (
             <div className="mt-2">
               <button
-                className="text-sm mb-1 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                className="text-sm mb-1 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-red-500 hover:text-white transition-all duration-200 border border-zinc-700 hover:border-red-500 font-medium tracking-wide transform hover:scale-105"
                 type="button"
                 onClick={() => setShowCypher(v => !v)}
               >
